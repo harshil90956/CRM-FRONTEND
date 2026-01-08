@@ -20,6 +20,10 @@ interface LeadCardProps {
   onSelect: () => void;
   onClick: () => void;
   variant?: 'small' | 'large';
+  onViewDetails?: () => void;
+  onEdit?: () => void;
+  onCall?: () => void;
+  onDelete?: () => void;
 }
 
 const getStatusStyle = (status: string) => {
@@ -44,7 +48,17 @@ const getPriorityStyle = (priority: string) => {
   return styles[priority] || "bg-gray-50 text-gray-600";
 };
 
-export const LeadCard = ({ lead, selected, onSelect, onClick, variant = 'small' }: LeadCardProps) => {
+export const LeadCard = ({
+  lead,
+  selected,
+  onSelect,
+  onClick,
+  variant = 'small',
+  onViewDetails,
+  onEdit,
+  onCall,
+  onDelete,
+}: LeadCardProps) => {
   const isLarge = variant === 'large';
 
   return (
@@ -76,10 +90,35 @@ export const LeadCard = ({ lead, selected, onSelect, onClick, variant = 'small' 
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-popover">
-              <DropdownMenuItem>View Details</DropdownMenuItem>
-              <DropdownMenuItem>Edit</DropdownMenuItem>
-              <DropdownMenuItem>Call</DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  onViewDetails?.();
+                }}
+              >
+                View Details
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  onEdit?.();
+                }}
+              >
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  onCall?.();
+                }}
+              >
+                Call
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => {
+                  onDelete?.();
+                }}
+              >
+                Delete
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
