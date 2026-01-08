@@ -1,0 +1,982 @@
+ADMIN 
+
+1️⃣ AUTH & SESSION (ADMIN CONTEXT)
+
+(Admin login & session restore ke bina kuch nahi chalega)
+
+POST   /auth/login
+POST   /auth/verify-otp
+POST   /auth/logout
+GET    /auth/me
+GET    /auth/permissions
+
+
+📌 Reason:
+
+AdminDashboard
+
+RBACGuard
+
+Sidebar rendering
+
+Role-based UI access
+
+2️⃣ ADMIN DASHBOARD (OVERVIEW + KPIs)
+
+(AdminDashboard.tsx, cards, charts)
+
+GET /admin/dashboard/summary
+GET /admin/dashboard/activity
+GET /admin/dashboard/top-agents
+
+
+📌 Reason:
+
+KPICard
+
+ActivityCard
+
+TopAgentsCard
+
+Charts (leads, revenue, units)
+
+3️⃣ USERS MANAGEMENT (ADMIN → USERS PAGE)
+
+(UsersPage.tsx, AddUserModal.tsx, UserTable.tsx)
+
+GET    /admin/users
+POST   /admin/users
+PATCH  /admin/users/:id
+DELETE /admin/users/:id
+
+PATCH  /admin/users/:id/status
+PATCH  /admin/users/:id/role
+
+
+📌 Reason:
+
+Add / edit users
+
+Activate / deactivate
+
+Role switching (Agent / Manager)
+
+4️⃣ LEADS MANAGEMENT (ADMIN)
+
+(LeadsPage.tsx, LeadsTable.tsx, LeadDetailModal.tsx)
+
+GET    /admin/leads
+POST   /admin/leads
+PATCH  /admin/leads/:id
+DELETE /admin/leads/:id
+
+PATCH  /admin/leads/:id/status
+PATCH  /admin/leads/:id/assign
+GET    /admin/leads/stats
+
+
+📌 Reason:
+
+Lead lifecycle
+
+Assign agent
+
+Lead status funnel
+
+Dashboard metrics
+
+5️⃣ PROJECTS MANAGEMENT (ADMIN)
+
+(ProjectsPage.tsx, ProjectForm.tsx)
+
+GET    /admin/projects
+POST   /admin/projects
+PATCH  /admin/projects/:id
+DELETE /admin/projects/:id
+
+POST   /admin/projects/:id/close
+GET    /admin/projects/:id/units
+
+
+📌 Reason:
+
+Create / edit projects
+
+Close project (cascade units)
+
+Project-wise inventory
+
+6️⃣ UNITS / INVENTORY (ADMIN)
+
+(UnitsPage.tsx, UnitsTable.tsx, UnitForm.tsx)
+
+GET    /admin/units
+POST   /admin/units
+PATCH  /admin/units/:id
+DELETE /admin/units/:id
+
+PATCH  /admin/units/:id/status
+GET    /admin/units/:id/history
+
+
+📌 Reason:
+
+Unit lifecycle
+
+Availability tracking
+
+Booking history per unit
+
+7️⃣ BOOKINGS & HOLDS (ADMIN – CRITICAL)
+
+(BookingsPage.tsx, BookingDetailSheet.tsx, HoldUnitModal.tsx)
+
+GET    /admin/bookings
+GET    /admin/bookings/:id
+
+POST   /admin/bookings/hold
+POST   /admin/bookings/:id/approve-hold
+POST   /admin/bookings/:id/reject-hold
+
+POST   /admin/bookings/:id/approve
+POST   /admin/bookings/:id/reject
+POST   /admin/bookings/:id/cancel
+
+GET    /admin/bookings/:id/timeline
+GET    /admin/bookings/statuses
+
+
+📌 Reason:
+
+Hold → approve → booking
+
+Status timeline
+
+Admin override flows
+
+⚠️ Transactional (PostgreSQL must)
+
+8️⃣ PAYMENTS (ADMIN)
+
+(PaymentsPage.tsx, PaymentForm.tsx)
+
+GET    /admin/payments
+GET    /admin/payments/:id
+
+POST   /admin/payments
+PATCH  /admin/payments/:id
+
+POST   /admin/payments/:id/mark-received
+POST   /admin/payments/:id/cancel
+
+GET    /admin/payments/summary
+
+
+📌 Reason:
+
+Track booking payments
+
+Manual receipt confirmation
+
+Revenue summary
+
+9️⃣ PAYMENT REMINDERS (ADMIN)
+
+(implicit via payments UI)
+
+POST /admin/payments/:id/reminders
+GET  /admin/payments/:id/reminders
+POST /admin/reminders/run
+
+
+📌 Reason:
+
+Nodemailer integration
+
+Due payment reminders
+
+🔟 REVIEWS MODERATION (ADMIN)
+
+(ReviewsModerationPage.tsx, ReviewList.tsx)
+
+GET    /admin/reviews
+PATCH  /admin/reviews/:id/approve
+DELETE /admin/reviews/:id
+GET    /admin/reviews/stats
+
+
+📌 Reason:
+
+Approve / reject customer reviews
+
+Rating control
+
+1️⃣1️⃣ REPORTS (ADMIN)
+
+(ReportsPage.tsx, charts)
+
+GET /admin/reports/leads
+GET /admin/reports/bookings
+GET /admin/reports/payments
+GET /admin/reports/agents
+
+
+📌 Reason:
+
+Export / visualize reports
+
+Chart-based UI
+
+1️⃣2️⃣ SETTINGS (ADMIN)
+
+(SettingsPage.tsx)
+
+GET   /admin/settings
+PATCH /admin/settings
+
+
+📌 Reason:
+
+System-level configs
+
+UI-driven settings
+
+📊 ADMIN API COUNT (REALITY CHECK)
+Area	APIs
+Auth	5
+Dashboard	3
+Users	6
+Leads	7
+Projects	6
+Units	6
+Bookings	9
+Payments	7
+Reminders	3
+Reviews	4
+Reports	4
+Settings	2
+TOTAL (ADMIN)	~62 APIs
+
+👉 This number is NORMAL for an admin-heavy CRM.
+
+🔒 IMPORTANT GUARANTEE
+
+Agar tum sirf ye ADMIN APIs bana lo
+to Admin UI ka ek bhi button dead nahi rahega
+
+
+
+MANAGER
+
+
+
+
+1️⃣ AUTH & SESSION (MANAGER CONTEXT)
+POST /auth/login
+POST /auth/verify-otp
+POST /auth/logout
+GET  /auth/me
+GET  /auth/permissions
+
+
+📌 Reason:
+
+ManagerDashboard access
+
+RBACGuard
+
+Sidebar/menu rendering
+
+2️⃣ MANAGER DASHBOARD (KPIs + OVERVIEW)
+
+(ManagerDashboard.tsx, KPI cards, charts)
+
+GET /manager/dashboard/summary
+GET /manager/dashboard/activity
+GET /manager/dashboard/team-performance
+
+
+📌 Reason:
+
+Team KPIs
+
+Lead & booking overview
+
+Performance charts
+
+3️⃣ TEAM MANAGEMENT (MANAGER → TEAM PAGE)
+
+(TeamPage.tsx)
+
+GET   /manager/team
+PATCH /manager/team/:userId/assign-target
+PATCH /manager/team/:userId/status
+
+
+📌 Reason:
+
+View team members
+
+Assign targets/goals
+
+Activate/deactivate team members (within scope)
+
+⛔ Role change ❌
+⛔ User delete ❌
+
+4️⃣ LEADS MANAGEMENT (MANAGER)
+
+(LeadsPage.tsx, LeadCard, filters)
+
+GET    /manager/leads
+PATCH  /manager/leads/:id/status
+PATCH  /manager/leads/:id/assign
+GET    /manager/leads/stats
+GET    /manager/leads/allowed-actions/:id
+
+
+📌 Reason:
+
+Team leads oversight
+
+Assign leads to agents
+
+Funnel stats
+
+Action validation per lead
+
+⛔ Lead delete ❌
+⛔ Lead create ❌ (admin/agent only)
+
+5️⃣ BOOKINGS & HOLDS (MANAGER)
+
+(BookingsPage.tsx, BookingTimeline.tsx)
+
+GET  /manager/bookings
+GET  /manager/bookings/:id
+
+POST /manager/bookings/:id/approve-hold
+POST /manager/bookings/:id/reject-hold
+
+GET  /manager/bookings/:id/timeline
+GET  /manager/bookings/allowed-actions/:id
+
+
+📌 Reason:
+
+Approve/reject holds
+
+Booking flow supervision
+
+Timeline visibility
+
+⛔ Final booking approval ❌ (Admin only)
+⛔ Cancel booking ❌
+
+6️⃣ PAYMENTS (MANAGER – READ + FOLLOW-UP)
+
+(PaymentsPage.tsx)
+
+GET /manager/payments
+GET /manager/payments/:id
+GET /manager/payments/summary
+
+
+📌 Reason:
+
+Monitor team payments
+
+Revenue overview
+
+⛔ Create payment ❌
+⛔ Mark received ❌
+
+7️⃣ UNITS / INVENTORY (MANAGER – READ + LIMITED CONTROL)
+
+(UnitsPage.tsx)
+
+GET  /manager/units
+PATCH /manager/units/:id/status
+GET  /manager/units/statuses
+
+
+📌 Reason:
+
+Monitor availability
+
+Put unit on HOLD (temporary)
+
+⛔ Unit create/delete ❌
+
+8️⃣ REPORTS (MANAGER)
+
+(ReportsPage.tsx)
+
+GET /manager/reports/leads
+GET /manager/reports/bookings
+GET /manager/reports/payments
+GET /manager/reports/team
+
+
+📌 Reason:
+
+Team-level reporting
+
+Performance analysis
+
+9️⃣ REVIEWS (MANAGER – DASHBOARD)
+
+(ManagerReviewsDashboard.tsx)
+
+GET /manager/reviews
+GET /manager/reviews/stats
+
+
+📌 Reason:
+
+View review trends
+
+Quality monitoring
+
+⛔ Approve/reject ❌ (Admin only)
+
+📊 MANAGER API COUNT
+Area	APIs
+Auth	5
+Dashboard	3
+Team	3
+Leads	5
+Bookings	6
+Payments	3
+Units	3
+Reports	4
+Reviews	2
+TOTAL (MANAGER)	~34 APIs
+
+👉 This is realistic & correct for a manager role.
+
+🔒 GUARANTEE
+
+Agar tum sirf ye MANAGER APIs bana lo
+to Manager UI ka ek bhi action dead nahi rahega
+aur Admin/Agent boundaries safe rahengi.
+
+
+
+
+1️⃣ AUTH & SESSION (AGENT CONTEXT)
+POST /auth/login
+POST /auth/verify-otp
+POST /auth/logout
+GET  /auth/me
+GET  /auth/permissions
+
+
+📌 Reason:
+
+AgentDashboard access
+
+RBACGuard
+
+Sidebar/menu rendering
+
+2️⃣ AGENT DASHBOARD (PERSONAL KPIs)
+
+(AgentDashboard.tsx, KPI cards)
+
+GET /agent/dashboard/summary
+GET /agent/dashboard/activity
+GET /agent/dashboard/performance
+
+
+📌 Reason:
+
+Personal lead count
+
+Booking progress
+
+Performance stats
+
+3️⃣ LEADS MANAGEMENT (AGENT CORE)
+
+(LeadsPage.tsx, LeadCard.tsx, LeadDetailModal.tsx)
+
+GET    /agent/leads
+POST   /agent/leads
+PATCH  /agent/leads/:id
+PATCH  /agent/leads/:id/status
+GET    /agent/leads/allowed-actions/:id
+
+
+📌 Reason:
+
+View assigned leads
+
+Add new leads
+
+Update lead status
+
+Action validation
+
+⛔ Delete lead ❌
+⛔ Assign lead ❌
+
+4️⃣ PROPERTIES / UNITS (AGENT – READ ONLY)
+
+(PropertiesPage.tsx)
+
+GET /agent/units
+GET /agent/units/:id
+GET /agent/units/availability
+
+
+📌 Reason:
+
+Show properties to customers
+
+Check availability before hold
+
+⛔ Create/update unit ❌
+
+5️⃣ BOOKINGS & HOLDS (AGENT – INITIATION)
+
+(BookingsPage.tsx, HoldUnitModal.tsx, BookingTimeline.tsx)
+
+GET  /agent/bookings
+GET  /agent/bookings/:id
+
+POST /agent/bookings/hold
+POST /agent/bookings/:id/cancel-hold
+
+GET  /agent/bookings/:id/timeline
+GET  /agent/bookings/allowed-actions/:id
+
+
+📌 Reason:
+
+Place hold on unit
+
+Cancel own hold
+
+Track booking progress
+
+⛔ Approve/reject hold ❌
+⛔ Final booking approval ❌
+
+6️⃣ PAYMENTS (AGENT – READ ONLY)
+
+(PaymentsPage.tsx)
+
+GET /agent/payments
+GET /agent/payments/:id
+
+
+📌 Reason:
+
+View payment status
+
+Follow up with customer
+
+⛔ Create/update payment ❌
+⛔ Mark received ❌
+
+7️⃣ REVIEWS (AGENT)
+
+(AgentReviewsPage.tsx)
+
+GET /agent/reviews
+
+
+📌 Reason:
+
+View customer feedback
+
+Performance reflection
+
+⛔ Write review ❌
+⛔ Moderate review ❌
+
+8️⃣ PERFORMANCE & GOALS (AGENT)
+
+(PerformancePage.tsx, GoalsForm.tsx)
+
+GET /agent/goals
+PATCH /agent/goals
+GET /agent/performance
+
+
+📌 Reason:
+
+View assigned goals
+
+Track performance
+
+📊 AGENT API COUNT
+Area	APIs
+Auth	5
+Dashboard	3
+Leads	5
+Units	3
+Bookings	5
+Payments	2
+Reviews	1
+Goals & Performance	3
+TOTAL (AGENT)	~27 APIs
+
+👉 Ye bilkul realistic hai for an agent-facing CRM.
+
+
+
+
+SUPER ADMIN
+
+
+
+1️⃣ AUTH & SESSION (SUPER ADMIN)
+POST /auth/login
+POST /auth/verify-otp
+POST /auth/logout
+GET  /auth/me
+GET  /auth/permissions
+
+
+📌 Reason:
+
+SuperAdminConsole access
+
+RBAC menu rendering
+
+High-privilege session checks
+
+2️⃣ TENANT / ORGANIZATION GOVERNANCE
+
+(SuperAdminTenantsPage)
+
+GET    /super-admin/tenants
+POST   /super-admin/tenants
+PATCH  /super-admin/tenants/:id
+PATCH  /super-admin/tenants/:id/status
+GET    /super-admin/tenants/:id/usage
+
+
+📌 Reason:
+
+Create/enable/disable organizations
+
+Usage & limits visibility (users, storage, activity)
+
+⛔ No tenant data CRUD ❌
+
+3️⃣ GLOBAL USERS (CROSS-TENANT)
+
+(SuperAdminUsersPage)
+
+GET   /super-admin/users
+PATCH /super-admin/users/:id/status
+GET   /super-admin/users/:id/activity
+
+
+📌 Reason:
+
+Suspend compromised accounts
+
+Audit suspicious activity
+
+⛔ Role assignment ❌
+⛔ User creation ❌
+
+4️⃣ SYSTEM CONFIGURATION (GLOBAL)
+
+(SystemSettingsPage)
+
+GET   /super-admin/settings
+PATCH /super-admin/settings
+
+
+📌 Reason:
+
+Global flags
+
+Feature toggles
+
+Rate-limit defaults
+
+⛔ Tenant overrides ❌ (Admin scope)
+
+5️⃣ SECURITY & AUDIT
+
+(SecurityDashboard)
+
+GET /super-admin/audit/logs
+GET /super-admin/security/events
+POST /super-admin/security/lockdown
+
+
+📌 Reason:
+
+Global audit trail
+
+Incident response (read-only + emergency action)
+
+⛔ Data mutation ❌
+
+6️⃣ BILLING & SUBSCRIPTIONS (OVERSIGHT ONLY)
+
+(BillingOverview)
+
+GET /super-admin/billing/tenants
+GET /super-admin/billing/summary
+
+
+📌 Reason:
+
+Platform revenue overview
+
+Tenant billing health
+
+⛔ Charge/refund ❌
+
+7️⃣ SYSTEM HEALTH & INFRA
+
+(SystemHealthPage)
+
+GET /super-admin/health
+GET /super-admin/metrics
+GET /super-admin/queues
+
+
+📌 Reason:
+
+Uptime
+
+Queue backlogs
+
+Infra observability (read-only)
+
+8️⃣ SUPPORT / IMPERSONATION (CONTROLLED)
+
+(SupportTools)
+
+POST /super-admin/impersonate/start
+POST /super-admin/impersonate/stop
+
+
+📌 Reason:
+
+Support debugging
+
+Temporary, audited access
+
+⚠️ MUST be:
+
+Time-boxed
+
+Fully logged
+
+📊 SUPER ADMIN API COUNT
+Area	APIs
+Auth	5
+Tenants	5
+Global Users	3
+System Config	2
+Security & Audit	3
+Billing	2
+Health & Infra	3
+Impersonation	2
+TOTAL (SUPER ADMIN)	~25 APIs
+
+👉 Ye expected & correct count hai for platform-level control.
+
+
+
+
+
+
+
+
+
+
+
+CUSTOMER 
+
+
+1️⃣ AUTH & SESSION (CUSTOMER)
+POST /auth/login
+POST /auth/verify-otp
+POST /auth/logout
+GET  /auth/me
+
+
+📌 Reason:
+
+Customer portal access
+
+Session restore
+
+Profile context
+
+⛔ Role/permission API ❌ (simple user)
+
+2️⃣ CUSTOMER PROFILE
+
+(CustomerProfilePage)
+
+GET   /customer/profile
+PATCH /customer/profile
+
+
+📌 Reason:
+
+View/update personal details
+
+Contact information management
+
+⛔ Role/status change ❌
+
+3️⃣ PROJECTS & PROPERTIES (BROWSING)
+
+(CustomerHome, PropertyListingPage, PropertyDetailPage)
+
+GET /customer/projects
+GET /customer/projects/:id
+
+GET /customer/units
+GET /customer/units/:id
+GET /customer/units/availability
+
+
+📌 Reason:
+
+Browse projects
+
+View unit details
+
+Check availability
+
+⛔ Create/update units ❌
+
+4️⃣ ENQUIRIES / LEADS (CUSTOMER → SYSTEM)
+
+(CustomerEnquiryForm)
+
+POST /customer/enquiries
+GET  /customer/enquiries
+GET  /customer/enquiries/:id
+
+
+📌 Reason:
+
+Submit interest
+
+Track enquiry status
+
+👉 Backend maps enquiry → lead (agent/admin side)
+
+5️⃣ BOOKINGS (CUSTOMER VIEW + LIMITED ACTION)
+
+(CustomerBookingsPage)
+
+GET /customer/bookings
+GET /customer/bookings/:id
+
+POST /customer/bookings/:id/cancel-request
+
+
+📌 Reason:
+
+View booking progress
+
+Request cancellation (approval required)
+
+⛔ Approve/reject ❌
+⛔ Hold creation ❌
+
+6️⃣ PAYMENTS (CUSTOMER)
+
+(CustomerPaymentsPage)
+
+GET /customer/payments
+GET /customer/payments/:id
+POST /customer/payments/:id/upload-proof
+
+
+📌 Reason:
+
+View due amounts
+
+Upload payment proof / reference
+
+⛔ Mark paid ❌
+⛔ Change amount ❌
+
+7️⃣ DOCUMENTS & RECEIPTS
+
+(CustomerDocumentsPage)
+
+GET /customer/documents
+GET /customer/documents/:id
+
+
+📌 Reason:
+
+View allotment letters
+
+Receipts / agreements (read-only)
+
+8️⃣ REVIEWS (CUSTOMER)
+
+(CustomerReviewsPage)
+
+POST /customer/reviews
+GET  /customer/reviews
+PATCH /customer/reviews/:id
+
+
+📌 Reason:
+
+Submit review
+
+Edit before approval
+
+⛔ Approve/reject ❌
+⛔ Edit after approval ❌
+
+9️⃣ NOTIFICATIONS (CUSTOMER)
+
+(CustomerNotifications)
+
+GET /customer/notifications
+PATCH /customer/notifications/:id/read
+
+
+📌 Reason:
+
+Booking/payment updates
+
+System messages
+
+📊 CUSTOMER API COUNT
+Area	APIs
+Auth	4
+Profile	2
+Browse	6
+Enquiries	3
+Bookings	3
+Payments	3
+Documents	2
+Reviews	3
+Notifications	2
+TOTAL (CUSTOMER)	~28 APIs
+
+👉 Ye realistic & sufficient hai for v1 customer portal.
+
+🔒 HARD GUARANTEES
+
+Customer never mutates core business data
+
+All sensitive actions → request-based
+
+No cross-customer data access
+
+Clean separation from Agent/Admin logic
+

@@ -1,0 +1,352 @@
+
+# PHASE 1 — BUSINESS ENTITY IDENTIFICATION
+
+1. **Staff Member**
+   Represents an internal person operating the CRM (Admin, Manager, Agent) with authority to manage sales and inventory work.
+
+2. **Customer**
+   Represents the real-world buyer/prospect who can request holds/bookings and make payments (even if customer login is introduced later).
+
+3. **Lead**
+   Represents a prospective sales opportunity/person being tracked through the pipeline until converted or lost.
+
+4. **Property Project**
+   Represents a real estate development/listing context (e.g., a building/project) under which inventory is sold.
+
+5. **Unit**
+   Represents an individually sellable inventory item within a project (a specific flat/shop/plot/unit).
+
+6. **Booking / Reservation**
+   Represents a customer’s intent to reserve a unit (including hold requests and booking confirmations) as a real-world transaction record.
+
+7. **Payment**
+   Represents money received or expected from a customer toward a booking/unit, tracked for status and receipts.
+
+8. **Payment Reminder**
+   Represents an outbound reminder action scheduled/sent to a customer regarding an outstanding payment.
+
+9. **Review**
+   Represents customer feedback submitted about an agent or a property/project, subject to approval workflow.
+
+---
+
+Save this output as **`05_PHASE_1_ENTITIES.txt`**.
+
+Confirm when saved, and I’ll continue to **Phase 2 — Ownership & Authority Model**.
+
+
+
+
+
+
+
+
+
+PHASE - 2
+
+
+
+
+# PHASE 2 — OWNERSHIP & AUTHORITY MODEL
+
+## 1) Staff Member
+- **Owner**: System (organization)
+- **Supervisor**: Admin
+- **Final Authority**: Admin
+- **Notes**: Managers/Agents exist under Admin control; activation/deactivation is an admin decision.
+
+## 2) Customer
+- **Owner**: User-owned (the customer as a real person), but controlled by the organization
+- **Supervisor**: Admin / Manager
+- **Final Authority**: Admin (for corrections/removals), Customer (for their own actions where permitted)
+- **Notes**: Even if customer login is later, the business entity exists now as the counterparty to bookings and payments.
+
+## 3) Lead
+- **Owner**: Organization-owned (created and maintained by staff)
+- **Supervisor**: Manager
+- **Final Authority**: Admin (ultimate), Manager (day-to-day)
+- **Notes**: Agents operate on assigned leads; assignment/priority/status changes are governed by management policies.
+
+## 4) Property Project
+- **Owner**: Organization-owned
+- **Supervisor**: Admin
+- **Final Authority**: Admin
+- **Notes**: Project creation/closure is an admin-controlled business decision.
+
+## 5) Unit
+- **Owner**: Organization-owned
+- **Supervisor**: Admin (inventory owner), Manager (operational oversight)
+- **Final Authority**: Admin
+- **Notes**: Unit lifecycle is influenced by transactions, but inventory authority remains with Admin.
+
+## 6) Booking / Reservation
+- **Owner**: Customer (initiator) + Organization (record authority)
+- **Supervisor**: Manager
+- **Final Authority**: Admin / Manager (approval/rejection), Customer (cancellation where allowed)
+- **Notes**: Holds/bookings require staff approval paths; customer can request and sometimes cancel.
+
+## 7) Payment
+- **Owner**: Organization-owned financial record (backed by customer funds)
+- **Supervisor**: Admin / Manager
+- **Final Authority**: Admin
+- **Notes**: Staff records/validates payments; customer does not “own” the financial record even if they make the payment.
+
+## 8) Payment Reminder
+- **Owner**: System/Organization-owned (an outbound operational artifact)
+- **Supervisor**: Manager
+- **Final Authority**: Admin / Manager
+- **Notes**: Reminders are initiated/scheduled by staff; system may execute scheduled reminders.
+
+## 9) Review
+- **Owner**: Customer-owned (author), but controlled by organization via approval
+- **Supervisor**: Manager
+- **Final Authority**: Manager/Admin (approve/reject), Customer (edit/delete while pending)
+- **Notes**: Visibility (e.g., “approved-only”) is controlled by staff.
+
+
+
+
+
+
+
+
+
+
+
+
+
+PHASE ---  3
+
+
+# PHASE 3 — RELATIONSHIP & CARDINALITY MAPPING
+
+Staff Member (1) —— (N) Lead  
+“One staff member can create/manage many leads.”
+
+Customer (1) —— (N) Lead  
+“A customer can be the subject of multiple leads over time (duplicates/re-engagement).”
+
+Property Project (1) —— (N) Unit  
+“A project contains many units.”
+
+Property Project (1) —— (N) Lead  
+“A project can attract many leads.”
+
+Staff Member (1) —— (N) Property Project  
+“An admin can manage many projects.”
+
+Staff Member (1) —— (N) Unit  
+“An admin can manage many units.”
+
+Customer (1) —— (N) Booking / Reservation  
+“A customer can place multiple holds/bookings over time.”
+
+Unit (1) —— (N) Booking / Reservation  
+“A unit can have many booking records over time (history), but only one active at a time.”
+
+Staff Member (1) —— (N) Booking / Reservation  
+“Managers/agents/admins can oversee many bookings as part of operations.”
+
+Booking / Reservation (1) —— (N) Payment  
+“A booking can have multiple payments (token, installments, etc.).”
+
+Customer (1) —— (N) Payment  
+“A customer can make multiple payments across bookings.”
+
+Unit (1) —— (N) Payment  
+“A unit can have multiple payments associated to its sale/booking.”
+
+Payment (1) —— (N) Payment Reminder  
+“A payment can have multiple reminders scheduled or sent.”
+
+Customer (1) —— (N) Review  
+“A customer can submit multiple reviews.”
+
+Staff Member (1) —— (N) Review  
+“Staff can oversee many reviews for moderation/approval.”
+
+Property Project (1) —— (N) Review  
+“A project/property can receive many reviews.”
+
+Staff Member (1) —— (N) Review  
+“An agent can receive many reviews about their service.”
+
+
+
+
+
+
+
+PHASE - 4
+
+
+
+
+
+
+# PHASE 4 — STATE MACHINES & LIFECYCLES
+
+## Lead:
+NEW → CONTACTED → FOLLOWUP → QUALIFIED → NEGOTIATION → CONVERTED  
+Terminal states: **CONVERTED**, **LOST**  
+Alternative terminal path: NEW/CONTACTED/FOLLOWUP/QUALIFIED/NEGOTIATION → LOST (**terminal**)
+
+## Property Project:
+Active/Launching → Completed → CLOSED  
+Terminal state: **CLOSED**  
+(Once CLOSED, it should not return to Active/Launching via normal operations.)
+
+## Unit:
+AVAILABLE → HOLD → BOOKED → SOLD  
+Terminal states: **SOLD**, **CLOSED**  
+Alternative transitions:\n- HOLD → AVAILABLE (if hold rejected/expired)\n- BOOKED → AVAILABLE (if booking cancelled/rejected)\n- ANY → CLOSED (when project is closed)
+
+## Booking / Reservation:
+PENDING (hold requested) → APPROVED → BOOKING_PENDING_APPROVAL → BOOKING_CONFIRMED → PAYMENT_PENDING → BOOKED  
+Terminal states: **BOOKED**, **CANCELLED**, **REJECTED**, **REFUNDED**  
+Alternative transitions:\n- PENDING → REJECTED (**terminal**)\n- APPROVED → CANCELLED (**terminal**)\n- BOOKING_PENDING_APPROVAL → CANCELLED (**terminal**)\n- BOOKING_CONFIRMED → CANCELLED (**terminal**)\n- BOOKED → REFUNDED (**terminal**)
+
+> Note: The current system uses multiple status labels in different screens; backend should still treat them as one lifecycle.
+
+## Payment:
+PENDING → RECEIVED  
+Terminal state: **RECEIVED**  
+Alternative terminal state: **REFUNDED**
+
+## Payment Reminder:
+SCHEDULED → SENT  
+Terminal state: **SENT**  
+(Optionally: SCHEDULED → CANCELLED as terminal, if cancellation exists in operations.)
+
+## Review:
+PENDING → APPROVED  
+Terminal state: **APPROVED**  
+Alternative terminal state: **REJECTED**  
+(Also possible: PENDING → DELETED as terminal, when customer deletes pending review.)
+
+---
+
+
+
+
+
+
+
+
+
+
+
+PAHSE - 5
+
+
+
+
+# PHASE 5 — TRANSACTION BOUNDARIES (CRITICAL)
+
+## 1) Hold Request Creation (Unit Hold)
+- Step 1: Validate the unit is currently available for holding.
+- Step 2: Create the Booking / Reservation record as a hold request.
+- Step 3: Change the Unit state from AVAILABLE to HOLD.
+- Rule: **All-or-nothing**
+
+## 2) Hold Approval (Admin approves hold)
+- Step 1: Mark the Booking / Reservation hold request as APPROVED.
+- Step 2: Confirm the Unit remains in HOLD (or set it to HOLD if not already).
+- Rule: **All-or-nothing**
+
+## 3) Hold Rejection (Admin rejects hold)
+- Step 1: Mark the Booking / Reservation hold request as REJECTED.
+- Step 2: Change the Unit state from HOLD back to AVAILABLE.
+- Rule: **All-or-nothing**
+
+## 4) Booking Approval (Manager confirms booking)
+- Step 1: Mark the Booking / Reservation as BOOKING_CONFIRMED (or equivalent confirmed state).
+- Step 2: Change the Unit state from HOLD to BOOKED.
+- Rule: **All-or-nothing**
+
+## 5) Booking Rejection (Manager rejects booking)
+- Step 1: Mark the Booking / Reservation as CANCELLED / REJECTED (as per lifecycle).
+- Step 2: Change the Unit state from HOLD (or BOOKED if progressed) back to AVAILABLE.
+- Rule: **All-or-nothing**
+
+## 6) Customer Booking Cancellation
+- Step 1: Mark the Booking / Reservation as CANCELLED.
+- Step 2: Release the Unit back to AVAILABLE (if it is not SOLD/CLOSED).
+- Rule: **All-or-nothing**
+
+## 7) Record Payment + Finalize Booking (Admin completes sale flow)
+- Step 1: Create the Payment record for the booking/unit/customer.
+- Step 2: Mark the Booking / Reservation as BOOKED (completed).
+- Step 3: Change the Unit state from BOOKED to SOLD.
+- Rule: **All-or-nothing**
+
+## 8) Project Close (Inventory shutdown)
+- Step 1: Mark the Property Project as CLOSED.
+- Step 2: Mark all Units under the project as CLOSED.
+- Rule: **All-or-nothing**
+
+## 9) Create Payment Reminder (Send/Schedule)
+- Step 1: Create the Payment Reminder record for the target Payment.
+- Step 2: If “send now”, mark reminder as SENT (and update the payment’s reminder tracking).
+- Step 3: If “schedule”, mark reminder as SCHEDULED (and update the payment’s next reminder tracking).
+- Rule: **All-or-nothing**
+
+## 10) Run Scheduled Reminders (Batch execution)
+- Step 1: Identify reminders due to be sent.
+- Step 2: Mark each due reminder as SENT.
+- Step 3: Update each associated payment’s reminder tracking state accordingly.
+- Rule: **All-or-nothing per reminder** (each reminder must not partially apply)
+
+
+
+
+
+
+
+PHASE - 6
+
+
+
+# PHASE 6 — DATA INTEGRITY & NON-NEGOTIABLE INVARIANTS
+
+1. A **Unit cannot have more than one active reservation at the same time** (no double-hold / double-booking for the same unit).
+
+2. A **Booking / Reservation cannot exist without a valid Unit**.
+
+3. A **Booking / Reservation cannot be approved/confirmed if the Unit is not currently reservable** (i.e., not already reserved, not sold, not closed).
+
+4. A **Unit cannot be SOLD without a completed booking** tied to that unit.
+
+5. A **Payment cannot exist without a real-world reason in the system**: it must be tied to a valid booking/reservation or a valid unit/customer context that the business recognizes.
+
+6. A **Payment cannot be marked as received if the associated booking is cancelled** (unless the system is explicitly recording a historical payment that will later be handled as a refund; the state must remain consistent).
+
+7. A **Booking / Reservation cannot transition to a terminal “completed” state unless the required payment step has been recorded** (where the workflow expects payment before completion).
+
+8. A **Unit cannot move backwards from SOLD to any reservable state** through normal operations.
+
+9. A **Closed Project cannot accept new reservations** (holds/bookings must not be created against units under a closed project).
+
+10. When a **Project is CLOSED, all Units under it must be CLOSED** (no partially closed project).
+
+11. A **Payment Reminder cannot exist without a Payment**.
+
+12. A **Payment Reminder cannot be marked as SENT unless it was scheduled or intentionally triggered by staff/system** (no “sent” without an originating reminder action).
+
+13. A **Review cannot exist without a valid author (Customer)**.
+
+14. A **Review cannot be APPROVED or REJECTED without staff authority** (customer cannot self-approve).
+
+15. A **Customer can only edit/delete a review while it is still pending** (once approved/rejected, it is immutable by the customer).
+
+16. A **Lead must always be owned by the organization and remain attributable to responsible staff** (no orphan leads without operational ownership).
+
+17. A **Staff Member’s role must be valid and normalized** (no ambiguous role variants driving permissions).
+
+18. **Tenant isolation must never be violated**: a staff member must never be able to view or mutate data outside their organization’s scope (except super-admin in the broader system design).
+
+---
+
+Save this output as **`05_PHASE_6_INVARIANTS.txt`**.
+
+**Phase 6 complete. End of execution.**

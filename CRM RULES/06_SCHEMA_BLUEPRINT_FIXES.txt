@@ -1,0 +1,19 @@
+06_SCHEMA_BLUEPRINT_FIXES.txt
+
+1) Tenant removal applied
+All references to a Tenant table, tenant relationships, and tenant_id concepts were removed. Tenancy is described only as implicit system scope (single-tenant v1).
+
+2) User entity elimination enforced
+Any generic “User” concept is eliminated. Identity is expressed only as Staff (Admin/Manager/Agent) and Customer (end user) throughout inventory, ownership, relationships, and flows.
+
+3) Payment ownership enforcement applied
+Any direct Payment–Unit relationship is removed. Payments belong only to Booking; the Unit relationship is resolved through Booking.
+
+4) Booking state clarity applied
+A dedicated DB-Level Booking States subsection is present with only minimal business-truth states. UI/UX statuses are explicitly marked as derived only and not persisted.
+
+5) Review target rule enforced
+Review targeting is explicitly exclusive: each Review targets exactly one — either a Project or an Agent (Staff), never both.
+
+6) Wording cleanup applied
+Implementation-dependent wording (e.g., “codebase-verified”, “frontend-driven”) was removed. The database blueprint is written as authoritative.

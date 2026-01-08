@@ -1,0 +1,372 @@
+🔒 REAL_ESTATE_CRM_BACKEND_CONSTITUTION (v2.0 — FINAL)
+STATUS
+
+This document is the binding law for all backend development of the Real Estate CRM.
+Any backend code, AI-generated or human-written, that violates this constitution is INVALID.
+
+1. TECHNOLOGY STACK & VERSIONING RULES
+1.1 Locked Backend Stack (NON-NEGOTIABLE)
+
+Backend runtime SHALL be Node.js
+
+Backend framework SHALL be NestJS with TypeScript
+
+Primary database SHALL be PostgreSQL
+
+ORM SHALL be Prisma
+
+Authentication mechanism SHALL be JWT-based
+
+Authorization model SHALL be Role-Based Access Control (RBAC)
+
+Roles (locked):
+
+Admin
+
+Manager
+
+Agent
+
+Customer (future)
+
+Super Admin (future)
+
+❌ MongoDB
+❌ Mongoose
+❌ Direct SQL (outside Prisma escape hatches explicitly approved)
+
+1.2 TypeScript Strictness
+
+TypeScript SHALL run in strict mode
+
+any SHALL be forbidden
+
+Non-null assertions (!) SHALL be forbidden except at infra boundaries
+
+Unsafe type assertions SHALL be forbidden in domain & application layers
+
+1.3 Dependency Control Rules
+
+Dependencies SHALL be minimal and justified
+
+Any new dependency MUST include:
+
+Security posture assessment
+
+Maintenance status check
+
+Clear ownership
+
+Versions SHALL be pinned via lockfiles
+
+Bypassing NestJS Guards for auth/authorization SHALL be forbidden
+
+2. SYSTEM ARCHITECTURE PRINCIPLES
+2.1 Modular Architecture
+
+System SHALL be divided into domain-oriented modules
+
+Each module SHALL own:
+
+Its domain rules
+
+Its persistence access
+
+Its API surface
+
+Modules SHALL be independently testable
+
+2.2 Domain Isolation
+
+Domain logic SHALL NOT depend on:
+
+HTTP
+
+Prisma
+
+Environment variables
+
+Infrastructure SHALL NOT leak into domain decisions
+
+2.3 Dependency Direction
+
+Dependencies SHALL be one-way
+
+No circular dependencies
+
+Cross-module access ONLY via:
+
+Explicit exported services
+
+Explicit contracts
+
+2.4 Forbidden Interactions
+
+A module MUST NOT:
+
+Access another module’s tables directly
+
+Import another module’s Prisma models
+
+Perform cross-module writes
+
+Hide orchestration inside ORM hooks
+
+3. NESTJS STRUCTURAL RULES
+3.1 Mandatory Separation
+
+Each module SHALL have:
+
+module.ts → wiring only
+
+controller.ts → HTTP only
+
+service.ts → application orchestration
+
+dto/ → request/response contracts
+
+❌ Business logic in controllers
+❌ HTTP concerns in services
+
+3.2 DTO Rules
+
+All input MUST go through DTOs
+
+DTOs represent external contracts, not DB schemas
+
+Request body spreading directly into Prisma writes is forbidden
+
+3.3 Guards, Interceptors, Filters
+
+Guards → auth & RBAC ONLY
+
+Interceptors → cross-IFC concerns only
+
+Filters → global error normalization only
+
+3.4 Global Validation
+
+Global ValidationPipe SHALL:
+
+Whitelist fields
+
+Reject unknown fields
+
+Safely transform primitives
+
+4. ROLE & API BOUNDARY RULES
+4.1 Role Isolation
+
+Admin APIs MUST NOT be callable by Manager or Agent
+
+Manager APIs MUST NOT mutate global state
+
+Agent APIs MUST be self-scoped
+
+Role-specific route prefixes are mandatory:
+
+/admin/*
+
+/manager/*
+
+/agent/*
+
+4.2 API Ownership
+
+Each API route belongs to EXACTLY ONE role
+
+Overlapping access MUST be enforced via guards, not duplicated logic
+
+5. AUTHENTICATION & AUTHORIZATION
+5.1 JWT Rules
+
+Access tokens → short-lived
+
+JWT payload → identifiers only
+
+JWT claims are NOT authoritative state
+
+5.2 Refresh Tokens
+
+Refresh tokens SHALL be revocable
+
+Rotation SHALL be enforced
+
+Plaintext storage forbidden
+
+5.3 Role Hierarchy
+
+Admin > Manager > Agent > Customer
+Inheritance MUST be explicit
+
+5.4 Guard Enforcement
+
+Every protected route MUST use:
+
+JWT Guard
+
+RBAC Guard
+
+Public routes MUST be explicitly marked
+
+6. API DESIGN CONSTITUTION
+6.1 REST Rules
+
+RESTful paths only
+
+POST allowed for action APIs (approve, reject, cancel)
+
+DELETE → soft delete only
+
+6.2 Response Envelope
+
+All responses MUST follow:
+
+{
+  success: boolean,
+  data: any,
+  message?: string,
+  correlationId: string
+}
+
+6.3 Error Envelope
+{
+  success: false,
+  errorCode: string,
+  message: string,
+  statusCode: number,
+  correlationId: string
+}
+
+6.4 Versioning
+
+/api/v1/* mandatory
+
+Breaking changes → new major version only
+
+7. DATABASE & PERSISTENCE (POSTGRESQL)
+7.1 PostgreSQL Rules
+
+Prisma is the ONLY access layer
+
+No raw SQL without explicit approval
+
+Referential integrity MUST be enforced
+
+7.2 Transactions (CRITICAL)
+
+Booking + Unit + Payment flows MUST be transactional
+
+Partial writes are forbidden
+
+7.3 Indexing
+
+Index only:
+
+Primary lookups
+
+Unique constraints
+
+Frequent filters
+
+Every index MUST be justified
+
+7.4 Soft Delete
+
+Default delete = soft delete
+
+Hard delete → admin-only maintenance
+
+8. REDIS (CACHING & RATE LIMITING)
+8.1 Allowed Uses
+
+Rate limiting
+
+Refresh token tracking
+
+Short-lived dashboard caches
+
+8.2 Forbidden Uses
+
+Redis as source of truth
+
+Business-critical state
+
+System MUST function if Redis is DOWN
+
+9. FILE STORAGE (S3 / R2)
+
+All images, documents, CSVs SHALL be stored in S3-compatible storage
+
+Backend stores ONLY metadata & URLs
+
+Local filesystem storage forbidden
+
+Pre-signed upload URLs mandatory
+
+10. EMAIL (NODEMAILER)
+
+Nodemailer SHALL be used with external SMTP
+
+Emails MUST be asynchronous
+
+Controllers MUST NOT send emails directly
+
+Email failures MUST NOT break core flows
+
+11. VALIDATION & DATA INTEGRITY
+
+DTO validation mandatory
+
+Blind persistence forbidden
+
+Client-provided role or ownership ignored
+
+12. ERROR HANDLING & LOGGING
+
+Global exception filter mandatory
+
+Correlation ID per request mandatory
+
+No secrets, tokens, or PII in logs
+
+13. PERFORMANCE & SCALABILITY
+
+Pagination mandatory
+
+Avoid N+1 queries
+
+No premature distributed complexity
+
+14. ENVIRONMENT & CONFIGURATION
+
+Environments strictly separated
+
+Secrets via env only
+
+Startup MUST fail on invalid config
+
+15. AI GOVERNANCE (BINDING)
+15.1 AI MUST
+
+Follow this constitution strictly
+
+Preserve module & role boundaries
+
+Respect API contracts
+
+15.2 AI MUST NEVER
+
+Bypass auth
+
+Invent APIs
+
+Change role access
+
+Introduce cross-module DB access
+
+Log sensitive data
+
+16. SUPREMACY CLAUSE
+
+If any output conflicts with this constitution, THIS CONSTITUTION WINS.

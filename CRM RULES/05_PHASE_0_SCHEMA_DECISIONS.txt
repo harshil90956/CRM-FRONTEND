@@ -1,0 +1,131 @@
+📄 05_PHASE_0_SCHEMA_DECISIONS.txt
+
+(Leader-Approved | Binding for DB Schema Design)
+
+PHASE 0 — SCHEMA DECISIONS (NON-NEGOTIABLE)
+
+This document captures explicit architectural decisions required before writing the PostgreSQL + Prisma schema.
+These decisions are binding and override any implicit assumptions.
+
+1️⃣ STAFF ENTITY STRATEGY
+
+Admin, Manager, and Agent SHALL be stored in a single Staff table.
+
+Role differentiation SHALL be handled via a role ENUM.
+
+There SHALL NOT be separate tables for Admin / Manager / Agent.
+
+Role changes are allowed via role updates, not row migration.
+
+Reason:
+Ensures clean RBAC, avoids FK duplication, and simplifies cross-role ownership logic.
+
+2️⃣ LEAD vs CUSTOMER IDENTITY CLARITY
+
+Lead and Customer are NOT the same entity.
+
+A Lead represents an interaction/opportunity, not a unique person.
+
+A Customer represents a verified individual.
+
+Multiple Leads MAY point to the same Customer over time.
+
+lead.customer_id SHALL be nullable and optional.
+
+Reason:
+Prevents duplicate-customer explosion and supports re-engagement scenarios.
+
+3️⃣ BOOKING STATE — DB vs UI SEPARATION
+
+The database SHALL store only core business-truth states.
+
+UI/UX-specific statuses SHALL be derived, not persisted.
+
+DB-level Booking States (example):
+
+HOLD_REQUESTED
+
+HOLD_APPROVED
+
+BOOKED
+
+CANCELLED
+
+EXPIRED
+
+UI-derived states (NOT stored):
+
+PAYMENT_PENDING
+
+BOOKING_CONFIRMED
+
+APPROVAL_IN_PROGRESS
+
+Reason:
+Prevents schema bloat and keeps DB aligned with invariant business truth.
+
+4️⃣ PAYMENT OWNERSHIP & RELATIONSHIP
+
+Every Payment SHALL belong to exactly one Booking.
+
+A Payment CANNOT exist without a valid Booking.
+
+Direct Payment → Unit ownership is forbidden.
+
+Unit relationship SHALL be resolved through Booking only.
+
+Reason:
+Preserves transactional integrity and avoids inconsistent financial history.
+
+5️⃣ TENANT / ORGANIZATION SCOPE (v1)
+
+Version 1 of the system SHALL be treated as single-tenant.
+
+No explicit Tenant table SHALL be implemented in v1.
+
+Schema design SHALL remain tenant-ready for future expansion.
+
+No partial or ad-hoc multi-tenancy is allowed.
+
+Reason:
+Avoids premature complexity while keeping future migration feasible.
+
+6️⃣ REVIEW SCOPE & TARGET
+
+A Review SHALL be associated with exactly one target:
+
+EITHER a Project
+
+OR an Agent
+
+A Review SHALL NOT reference both simultaneously.
+
+Review approval remains a staff-controlled action.
+
+Reason:
+Prevents ambiguous review ownership and simplifies moderation logic.
+
+7️⃣ SCHEMA CHANGE AUTHORITY
+
+Only the Project Leader may:
+
+Add tables
+
+Modify relations
+
+Change cardinality
+
+Other developers may ONLY consume the schema via APIs.
+
+Reason:
+Ensures DB stability and prevents uncontrolled schema drift.
+
+STATUS
+
+Phase 0 decisions are FINAL.
+
+Prisma schema design may now proceed safely.
+
+Any violation of this document is a blocking defect.
+
+✅ DONE.

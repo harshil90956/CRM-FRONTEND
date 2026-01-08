@@ -1,0 +1,159 @@
+================================ SECTION A — TABLE INVENTORY
+Staff
+Internal operators of the CRM (Admin, Manager, Agent) who create, approve, assign, and moderate business records.
+Customer
+Verified end users who place reservations and submit reviews.
+Lead
+A sales opportunity record representing an interaction/opportunity that may later be linked to a verified customer.
+Project
+A real estate project/development that groups inventory units.
+Unit
+A sellable inventory item within a project whose availability changes as reservations progress.
+Booking
+A reservation ledger representing hold requests and completed bookings for a unit by a customer.
+Payment
+A financial record representing money received/expected for a booking.
+PaymentReminder
+A record of reminders scheduled or sent for a payment.
+Review
+Customer feedback that targets exactly one subject: either a project or an agent (staff).
+================================ SECTION B — TABLE OWNERSHIP
+Staff:
+
+Owner: System (managed by Admin)
+Transactional: No
+Customer:
+
+Owner: System-governed identity (created/verified by staff as needed; represents an end user)
+Transactional: No
+Lead:
+
+Owner: Staff (Admin/Manager primary; Agent operates on assigned leads)
+Transactional: No
+Project:
+
+Owner: Staff (Admin)
+Transactional: No
+Unit:
+
+Owner: Staff (Admin primary; Manager operational oversight)
+Transactional: Yes
+Booking:
+
+Owner: Customer initiates; Staff controls approval/cancellation outcomes
+Transactional: Yes
+Payment:
+
+Owner: Staff (Admin primary; Manager oversight)
+Transactional: Yes
+PaymentReminder:
+
+Owner: Staff (Admin/Manager) with system execution for scheduled sending
+Transactional: Yes
+Review:
+
+Owner: Customer authors; Staff moderates (approve/reject)
+Transactional: No
+================================ SECTION C — RELATIONSHIP BLUEPRINT
+Project (1) —— (N) Unit
+“One project contains many units.”
+
+Customer (1) —— (N) Booking
+“A customer can create multiple bookings over time.”
+
+Unit (1) —— (N) Booking
+“A unit can have multiple booking records over time (history), but only one can be active at a time.”
+
+Staff (1) —— (N) Lead
+“A staff member can manage many leads.”
+
+Customer (1) —— (N) Lead
+“A customer may be associated with multiple leads over time when/if leads are linked to a verified customer.”
+
+Lead (N) —— (1) Customer
+“Many leads may point to the same customer; linking is optional.”
+
+Project (1) —— (N) Booking
+“A project can have many bookings via its units.”
+
+Booking (N) —— (1) Unit
+“Each booking reserves exactly one unit.”
+
+Booking (1) —— (N) Payment
+“A booking can have multiple payments (token and subsequent payments).”
+
+Payment (1) —— (N) PaymentReminder
+“A payment can have multiple reminders.”
+
+Customer (1) —— (N) Review
+“A customer can submit multiple reviews over time.”
+
+Review (N) —— (1) Project
+“A review may target a single project.”
+
+Review (N) —— (1) Staff
+“A review may target a single agent (staff).”
+
+Review targeting exclusivity:
+“A review targets exactly one: either a project or an agent (staff). It never targets both.”
+
+================================ SECTION D — TRANSACTION FLOWS
+Create Hold (Customer requests reservation)
+Step 1: Confirm the unit is currently reservable.
+Step 2: Create a booking in HOLD_REQUESTED state for that customer and unit.
+Step 3: Update the unit to held state. Rule: All-or-nothing.
+Approve Hold (Staff approves reservation request)
+Step 1: Move the booking from HOLD_REQUESTED to HOLD_APPROVED.
+Step 2: Ensure the unit remains held for that booking.
+Step 3: Ensure no other active booking exists for the same unit. Rule: All-or-nothing.
+Reject Hold / Cancel Hold (Staff rejects or customer cancels where permitted)
+Step 1: Mark the booking as CANCELLED.
+Step 2: Release the unit back to available (if not sold/closed by inventory rules). Rule: All-or-nothing.
+Expire Hold (System expiry)
+Step 1: Mark the booking as EXPIRED.
+Step 2: Release the unit back to available. Rule: All-or-nothing.
+Record Payment (Staff records payment against a booking)
+Step 1: Create a payment that belongs to exactly one booking.
+Step 2: Associate the payment to the booking’s payment history. Rule: All-or-nothing.
+Complete Booking (Finalization)
+Step 1: Confirm booking is eligible for completion based on recorded payments required by the business flow.
+Step 2: Mark the booking as BOOKED.
+Step 3: Update the unit to sold state. Rule: All-or-nothing.
+Create Payment Reminder (Send now or schedule)
+Step 1: Create a payment reminder linked to a payment.
+Step 2: Mark reminder as scheduled or sent based on the staff action.
+Step 3: Keep payment reminder tracking consistent with reminders recorded. Rule: All-or-nothing.
+Run Scheduled Reminders (Batch execution)
+Step 1: Identify reminders that are due.
+Step 2: Mark each due reminder as sent.
+Step 3: Keep payment reminder tracking consistent after sending. Rule: All-or-nothing per reminder.
+================================ SECTION E — DB VS UI STATE BOUNDARY
+DB-level Booking States (stored; business truth only):
+
+HOLD_REQUESTED
+HOLD_APPROVED
+BOOKED
+CANCELLED
+EXPIRED
+UI-derived states (derived only; not stored as database truth):
+
+PAYMENT_PENDING
+BOOKING_CONFIRMED
+APPROVAL_IN_PROGRESS
+Principle:
+
+The database stores only invariant-safe, business-truth states.
+UI may display intermediate statuses derived from combinations of stored states and related records.
+================================ SECTION F — INVARIANTS
+A unit must not have more than one active booking at the same time.
+A booking must reference exactly one unit and exactly one customer.
+A payment must belong to exactly one booking, and cannot exist without a valid booking.
+A payment must never be associated directly to a unit; unit association is derived through the booking.
+A booking cannot be marked BOOKED unless the unit is the one reserved by that booking.
+A unit cannot be marked sold unless there exists a completed (BOOKED) booking for that unit.
+A cancelled or expired booking must not continue to block unit availability.
+A review must be authored by a customer.
+A review must target exactly one subject: either a project or an agent (staff), never both.
+Only staff can approve or reject reviews; customers cannot self-approve.
+A lead is not a customer; a lead may optionally link to a customer, and many leads may link to the same customer.
+Feedback submitted
