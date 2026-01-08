@@ -78,8 +78,6 @@ const statusOptions = [
   { value: "NEW", label: "New" },
   { value: "CONTACTED", label: "Contacted" },
   { value: "FOLLOWUP", label: "Follow Up" },
-  { value: "QUALIFIED", label: "Qualified" },
-  { value: "NEGOTIATION", label: "Negotiation" },
   { value: "CONVERTED", label: "Converted" },
   { value: "LOST", label: "Lost" },
 ];
@@ -175,7 +173,7 @@ export const LeadsPage = () => {
   const loadLeads = async () => {
     setIsLoading(true);
     try {
-      const res = await leadsService.list();
+      const res = await leadsService.listAdminLeads();
       if (!res.success) {
         throw new Error(res.message || "Failed to load leads");
       }
@@ -273,24 +271,98 @@ export const LeadsPage = () => {
   };
 
   const handleBulkStatusChange = async (newStatus: string) => {
-    toast.error("Status change is not implemented on backend yet");
+    if (selectedIds.size === 0) return;
+
+    const idsToUpdate = Array.from(selectedIds);
+    try {
+      const results = await Promise.all(
+        idsToUpdate.map(async (id) => {
+          try {
+            const res = await leadsService.updateLeadStatus(id, newStatus);
+            return { id, res };
+          } catch (e) {
+            return { id, error: e };
+          }
+        }),
+      );
+
+      const succeeded = results.filter((r) => (r as any).res?.success).length;
+      const failed = results.length - succeeded;
+
+      if (succeeded > 0) {
+        setLeads((prev) =>
+          prev.map((l) => (idsToUpdate.includes(l.id) ? { ...l, status: newStatus } : l)),
+        );
+        toast.success(`Updated status for ${succeeded} lead(s)`);
+      }
+      if (failed > 0) {
+        toast.error(`Failed to update status for ${failed} lead(s)`);
+      }
+    } finally {
+      setSelectedIds(new Set());
+    }
   };
 
   const handleBulkAssign = async (agentId: string) => {
     try {
       const idsToAssign = Array.from(selectedIds);
-      await Promise.all(idsToAssign.map((id) => leadsService.assign(id, agentId)));
+      const results = await Promise.all(
+        idsToAssign.map(async (id) => {
+          try {
+            const res = await leadsService.assignLead(id, agentId);
+            return { id, res };
+          } catch (e) {
+            return { id, error: e };
+          }
+        }),
+      );
 
-      setLeads((prev) => prev.filter((l) => !idsToAssign.includes(l.id)));
+      const succeededIds = results.filter((r) => (r as any).res?.success).map((r) => (r as any).id as string);
+      const failed = results.length - succeededIds.length;
+
+      if (succeededIds.length > 0) {
+        setLeads((prev) => prev.filter((l) => !succeededIds.includes(l.id)));
+        toast.success(`Assigned ${succeededIds.length} lead(s)`);
+      }
+      if (failed > 0) {
+        toast.error(`Failed to assign ${failed} lead(s)`);
+      }
+
       setSelectedIds(new Set());
-      toast.success(`Assigned ${idsToAssign.length} leads`);
     } catch {
       toast.error("Failed to assign leads");
     }
   };
 
   const handleBulkDelete = async () => {
-    toast.error("Delete is not implemented on backend yet");
+    if (selectedIds.size === 0) return;
+
+    const idsToDelete = Array.from(selectedIds);
+    try {
+      const results = await Promise.all(
+        idsToDelete.map(async (id) => {
+          try {
+            const res = await leadsService.deleteLead(id);
+            return { id, res };
+          } catch (e) {
+            return { id, error: e };
+          }
+        }),
+      );
+
+      const succeededIds = results.filter((r) => (r as any).res?.success).map((r) => (r as any).id as string);
+      const failed = results.length - succeededIds.length;
+
+      if (succeededIds.length > 0) {
+        setLeads((prev) => prev.filter((l) => !succeededIds.includes(l.id)));
+        toast.success(`Deleted ${succeededIds.length} lead(s)`);
+      }
+      if (failed > 0) {
+        toast.error(`Failed to delete ${failed} lead(s)`);
+      }
+    } finally {
+      setSelectedIds(new Set());
+    }
   };
 
   const handleAddLead = async () => {
@@ -299,71 +371,53 @@ export const LeadsPage = () => {
       return;
     }
 
-    if (!newLeadStaffId) {
-      toast.error('Please select an agent');
-      return;
-    }
-
     try {
-      const res = await leadsService.create({
+      await leadsService.createLead({
         name: newLead.name,
         email: newLead.email,
         phone: newLead.phone,
-        status: 'NEW',
+        projectId: newLead.project ? newLead.project : null,
+        budget: newLead.budget ? Number(newLead.budget) : null,
         source: (newLead.source || 'Website') as any,
         priority: (newLead.priority || undefined) as any,
-        budget: newLead.budget || '',
-        notes: newLead.notes || undefined,
-        assignedToId: newLeadStaffId,
+        notes: newLead.notes ? newLead.notes : null,
         tenantId: 'tenant_default',
       });
-      if (!res.success) {
-        toast.error(res.message || "Failed to create lead");
-        return;
-      }
       await loadLeads();
       setIsAddOpen(false);
       setNewLead({ name: "", email: "", phone: "", project: "", budget: "", source: "Website", priority: "Medium", notes: "" });
       toast.success("Lead added successfully");
-    } catch {
-      toast.error("Failed to create lead");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create lead';
+      toast.error(message || "Failed to create lead");
     }
   };
 
   const handleQuickAdd = async () => {
-    if (!newLead.name || !newLead.phone) {
-      toast.error("Name and phone are required");
-      return;
-    }
-
-    if (!newLeadStaffId) {
-      toast.error('Please select an agent');
+    if (!newLead.name || !newLead.email || !newLead.phone) {
+      toast.error("Please fill all required fields");
       return;
     }
 
     try {
-      const res = await leadsService.create({
+      await leadsService.createLead({
         name: newLead.name,
         email: newLead.email,
         phone: newLead.phone,
-        status: 'NEW',
+        projectId: newLead.project ? newLead.project : null,
+        budget: newLead.budget ? Number(newLead.budget) : null,
         source: (newLead.source || 'Website') as any,
         priority: (newLead.priority || undefined) as any,
-        budget: newLead.budget || '',
-        notes: newLead.notes || undefined,
-        assignedToId: newLeadStaffId,
+        notes: newLead.notes ? newLead.notes : null,
         tenantId: 'tenant_default',
       });
-      if (!res.success) {
-        toast.error(res.message || "Failed to create lead");
-        return;
-      }
       await loadLeads();
       setIsQuickAddOpen(false);
       setNewLead({ name: "", email: "", phone: "", project: "", budget: "", source: "Website", priority: "Medium", notes: "" });
       toast.success("Lead added quickly!");
-    } catch {
-      toast.error("Failed to create lead");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create lead';
+      toast.error(message || "Failed to create lead");
     }
   };
 
@@ -402,7 +456,24 @@ export const LeadsPage = () => {
       toast.error("Please fill all required fields");
       return;
     }
-    toast.error("Edit is not implemented on backend yet");
+
+    try {
+      const res = await leadsService.updateLead(selectedLead.id, {
+        name: editLead.name,
+        email: editLead.email,
+        phone: editLead.phone,
+        notes: editLead.notes || undefined,
+      });
+      if (!res.success) {
+        toast.error(res.message || 'Failed to update lead');
+        return;
+      }
+      await loadLeads();
+      setIsEditOpen(false);
+      toast.success('Lead updated successfully');
+    } catch {
+      toast.error('Failed to update lead');
+    }
   };
 
   const handleDelete = (lead: LeadDb & { assignedTo?: string | null }) => {
@@ -412,7 +483,19 @@ export const LeadsPage = () => {
 
   const confirmDelete = async () => {
     if (!selectedLead) return;
-    toast.error("Delete is not implemented on backend yet");
+
+    try {
+      const res = await leadsService.deleteLead(selectedLead.id);
+      if (!res.success) {
+        toast.error(res.message || 'Failed to delete lead');
+        return;
+      }
+      setLeads((prev) => prev.filter((l) => l.id !== selectedLead.id));
+      setIsDeleteOpen(false);
+      toast.success('Lead deleted successfully');
+    } catch {
+      toast.error('Failed to delete lead');
+    }
   };
 
   const handleCall = (lead: LeadDb & { assignedTo?: string | null }) => {
@@ -540,6 +623,10 @@ export const LeadsPage = () => {
           selected={selectedIds.has(lead.id)}
           onSelect={() => toggleSelect(lead.id)}
           onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}
+          onViewDetails={() => { setSelectedLead(lead); setIsDetailOpen(true); }}
+          onEdit={() => handleEdit(lead)}
+          onCall={() => handleCall(lead)}
+          onDelete={() => handleDelete(lead)}
           variant={variant}
         />
       ))}
@@ -572,7 +659,7 @@ export const LeadsPage = () => {
                   <Input placeholder="+91 98765 43210" value={newLead.phone} onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })} />
                 </div>
                 <div className="grid gap-2">
-                  <Label>Email (optional)</Label>
+                  <Label>Email *</Label>
                   <Input type="email" placeholder="email@example.com" value={newLead.email} onChange={(e) => setNewLead({ ...newLead, email: e.target.value })} />
                 </div>
               </div>

@@ -8,7 +8,7 @@ export type LeadDb = {
   status: string;
   source: string;
   priority?: string | null;
-  budget: string;
+  budget: string | number;
   notes?: string | null;
   projectId?: string | null;
   assignedToId?: string | null;
@@ -30,6 +30,31 @@ export type CreateLeadInput = {
   tenantId: string;
 };
 
+export type AdminCreateLeadInput = {
+  name: string;
+  email: string;
+  phone: string;
+  budget?: number | null;
+  notes?: string | null;
+  priority?: string;
+  source: string;
+  projectId?: string | null;
+  tenantId: string;
+};
+
+export type AdminUpdateLeadInput = {
+  name?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+};
+
+export type LeadStats = {
+  total: number;
+  unassigned: number;
+  assigned: number;
+};
+
 export const leadsService = {
   list: async () => {
     return httpClient.get<LeadDb[]>('/leads');
@@ -45,5 +70,40 @@ export const leadsService = {
 
   assign: async (id: string, staffId: string) => {
     return httpClient.patch<LeadDb>(`/leads/${id}/assign`, { assignedToId: staffId });
+  },
+
+  listAdminLeads: async () => {
+    return httpClient.get<LeadDb[]>('/admin/leads');
+  },
+
+  createLead: async (input: AdminCreateLeadInput) => {
+    const res = await httpClient.post<LeadDb>('/admin/leads', input);
+    if (!res.success) {
+      throw new Error(res.message || 'Create lead failed');
+    }
+    if (!res.data) {
+      throw new Error(res.message || 'Create lead failed');
+    }
+    return res.data;
+  },
+
+  updateLead: async (id: string, input: AdminUpdateLeadInput) => {
+    return httpClient.patch<LeadDb>(`/admin/leads/${id}`, input);
+  },
+
+  deleteLead: async (id: string) => {
+    return httpClient.del<LeadDb>(`/admin/leads/${id}`);
+  },
+
+  updateLeadStatus: async (id: string, status: string) => {
+    return httpClient.patch<LeadDb>(`/admin/leads/${id}/status`, { status });
+  },
+
+  assignLead: async (id: string, assignedToId: string) => {
+    return httpClient.patch<LeadDb>(`/admin/leads/${id}/assign`, { assignedToId });
+  },
+
+  getLeadStats: async () => {
+    return httpClient.get<LeadStats>('/admin/leads/stats');
   },
 };
