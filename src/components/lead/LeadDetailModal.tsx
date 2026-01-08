@@ -22,30 +22,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Lead } from "@/data/mockData";
-
-interface LeadNote {
-  id: string;
-  content: string;
-  author: string;
-  createdAt: string;
-  type: 'note' | 'call' | 'email' | 'meeting';
-}
+import type { LeadDb } from "@/api/services/leads.service";
 
 interface LeadDetailModalProps {
-  lead: Lead | null;
+  lead: (LeadDb & { assignedTo?: string | null }) | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onUpdate?: (leadId: string, updates: Partial<Lead>) => void;
-  onAddNote?: (leadId: string, note: Omit<LeadNote, 'id' | 'createdAt'>) => void;
-  onClose?: (leadId: string, reason: string) => void;
 }
-
-const mockNotes: LeadNote[] = [
-  { id: '1', content: 'Initial inquiry about 3BHK units. Customer interested in east-facing apartments.', author: 'Rahul Verma', createdAt: '2024-01-15T10:30:00Z', type: 'call' },
-  { id: '2', content: 'Sent brochure and price list via email.', author: 'Rahul Verma', createdAt: '2024-01-14T15:45:00Z', type: 'email' },
-  { id: '3', content: 'Customer visited the site. Very interested in unit A-401.', author: 'Priya Singh', createdAt: '2024-01-12T11:00:00Z', type: 'meeting' },
-];
 
 const getStatusStyle = (status: string) => {
   const styles: Record<string, string> = {
@@ -69,14 +52,7 @@ const getNoteIcon = (type: string) => {
   }
 };
 
-export const LeadDetailModal = ({ 
-  lead, 
-  open, 
-  onOpenChange,
-  onUpdate,
-  onAddNote,
-  onClose
-}: LeadDetailModalProps) => {
+export const LeadDetailModal = ({ lead, open, onOpenChange }: LeadDetailModalProps) => {
   const [newNote, setNewNote] = useState("");
   const [noteType, setNoteType] = useState<'note' | 'call' | 'email' | 'meeting'>('note');
   const [closeReason, setCloseReason] = useState("");
@@ -85,32 +61,14 @@ export const LeadDetailModal = ({
   if (!lead) return null;
 
   const handleAddNote = () => {
-    if (newNote.trim().length < 5) {
-      toast.error("Note must be at least 5 characters");
-      return;
-    }
-    
-    if (onAddNote) {
-      onAddNote(lead.id, { content: newNote, author: 'Current User', type: noteType });
-    }
-    
-    toast.success("Note added successfully");
-    setNewNote("");
+    toast.error('Activity/notes are not implemented on backend yet');
+    setNewNote('');
   };
 
   const handleCloseLead = () => {
-    if (closeReason.trim().length < 10) {
-      toast.error("Reason must be at least 10 characters");
-      return;
-    }
-    
-    if (onClose) {
-      onClose(lead.id, closeReason);
-    }
-    
-    toast.success("Lead closed successfully");
+    toast.error('Close lead is not implemented on backend yet');
     setShowCloseDialog(false);
-    setCloseReason("");
+    setCloseReason('');
     onOpenChange(false);
   };
 
@@ -151,7 +109,7 @@ export const LeadDetailModal = ({
                 <Building2 className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-xs text-muted-foreground">Project</p>
-                  <p className="text-sm font-medium">{lead.project || 'Not specified'}</p>
+                  <p className="text-sm font-medium">{lead.projectId || 'Not specified'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
@@ -174,35 +132,6 @@ export const LeadDetailModal = ({
                   <p className="text-xs text-muted-foreground">Created</p>
                   <p className="text-sm font-medium">{format(new Date(lead.createdAt), 'MMM dd, yyyy')}</p>
                 </div>
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* Notes Timeline */}
-            <div>
-              <h3 className="font-semibold mb-4">Activity Timeline</h3>
-              <div className="space-y-4">
-                {mockNotes.map((note) => {
-                  const Icon = getNoteIcon(note.type);
-                  return (
-                    <div key={note.id} className="flex gap-3">
-                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                        <Icon className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm">{note.content}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-muted-foreground">{note.author}</span>
-                          <span className="text-xs text-muted-foreground">•</span>
-                          <span className="text-xs text-muted-foreground">
-                            {format(new Date(note.createdAt), 'MMM dd, yyyy HH:mm')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             </div>
 

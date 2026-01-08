@@ -64,7 +64,7 @@ import { ViewMode } from "@/components/leads/ViewToggle";
 import { DatePreset } from "@/components/leads/DateRangePicker";
 import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
 import { leadsService, staffService } from "@/api";
-import { Lead, projects, units } from "@/data/mockData";
+import type { LeadDb } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isWithinInterval } from "date-fns";
@@ -109,7 +109,7 @@ const getPriorityStyle = (priority: string) => {
 export const LeadsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [isLoading, setIsLoading] = useState(true);
-  const [leads, setLeads] = useState<(Lead & { priority?: string; value?: string; title?: string })[]>([]);
+  const [leads, setLeads] = useState<(LeadDb & { assignedTo?: string | null })[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [newLeadStaffId, setNewLeadStaffId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -120,7 +120,7 @@ export const LeadsPage = () => {
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [selectedLead, setSelectedLead] = useState<(LeadDb & { assignedTo?: string | null }) | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
@@ -179,37 +179,14 @@ export const LeadsPage = () => {
       if (!res.success) {
         throw new Error(res.message || "Failed to load leads");
       }
-
-      const data: Lead[] = (res.data || []).map((l) => {
-        const fakeEmail = `${l.name.toLowerCase().replace(/\s+/g, ".")}@example.com`;
-        const assignedName = staffNameById.get(l.staffId) || l.staffId;
+      const data = (res.data || []).map((l) => {
+        const assignedName = staffNameById.get(l.assignedToId || '') || l.assignedToId || null;
         return {
-          id: l.id,
-          name: l.name,
-          email: fakeEmail,
-          phone: l.phone,
-          status: "NEW",
-          source: "Website",
-          budget: "",
-          priority: undefined,
-          assignedToId: l.staffId,
+          ...l,
           assignedTo: assignedName,
-          tenantId: "t_soundarya",
-          notes: "",
-          activities: [],
-          createdAt: l.createdAt,
-          updatedAt: undefined,
-        } as Lead;
+        };
       });
-      const priorities: ('High' | 'Medium' | 'Low')[] = ['High', 'Medium', 'Low'];
-      const titles = ["CTO", "VP of Operations", "Marketing Director", "Founder & CEO", "Manager"];
-      const enrichedLeads = data.map((lead, i) => ({
-        ...lead,
-        priority: lead.priority || priorities[i % 3],
-        value: `₹${(Math.floor(Math.random() * 150) + 50)}L`,
-        title: titles[i % 5],
-      }));
-      setLeads(enrichedLeads);
+      setLeads(data);
     } catch (error) {
       toast.error("Failed to load leads");
     } finally {
@@ -222,7 +199,7 @@ export const LeadsPage = () => {
       const matchesSearch =
         lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         lead.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (lead.project || "").toLowerCase().includes(searchTerm.toLowerCase());
+        (lead.projectId || "").toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
       const matchesPriority = priorityFilter === "all" || lead.priority === priorityFilter;
       const matchesSource = sourceFilter === "all" || lead.source === sourceFilter;
@@ -268,10 +245,10 @@ export const LeadsPage = () => {
       lead.name,
       lead.email,
       lead.phone,
-      lead.project || "",
+      lead.projectId || "",
       lead.status,
       lead.priority || "",
-      lead.value || "",
+      lead.budget || "",
       lead.source,
       lead.assignedTo || "",
     ]);
@@ -286,7 +263,7 @@ export const LeadsPage = () => {
       lead.name,
       lead.email,
       lead.phone,
-      lead.project || "",
+      lead.projectId || "",
       lead.status,
       lead.source,
       lead.assignedTo || "",
@@ -301,10 +278,12 @@ export const LeadsPage = () => {
 
   const handleBulkAssign = async (agentId: string) => {
     try {
-      await Promise.all(Array.from(selectedIds).map((id) => leadsService.assign(id, agentId)));
-      await loadLeads();
+      const idsToAssign = Array.from(selectedIds);
+      await Promise.all(idsToAssign.map((id) => leadsService.assign(id, agentId)));
+
+      setLeads((prev) => prev.filter((l) => !idsToAssign.includes(l.id)));
       setSelectedIds(new Set());
-      toast.success(`Assigned ${selectedIds.size} leads`);
+      toast.success(`Assigned ${idsToAssign.length} leads`);
     } catch {
       toast.error("Failed to assign leads");
     }
@@ -326,7 +305,18 @@ export const LeadsPage = () => {
     }
 
     try {
-      const res = await leadsService.create({ name: newLead.name, phone: newLead.phone, staffId: newLeadStaffId });
+      const res = await leadsService.create({
+        name: newLead.name,
+        email: newLead.email,
+        phone: newLead.phone,
+        status: 'NEW',
+        source: (newLead.source || 'Website') as any,
+        priority: (newLead.priority || undefined) as any,
+        budget: newLead.budget || '',
+        notes: newLead.notes || undefined,
+        assignedToId: newLeadStaffId,
+        tenantId: 'tenant_default',
+      });
       if (!res.success) {
         toast.error(res.message || "Failed to create lead");
         return;
@@ -352,7 +342,18 @@ export const LeadsPage = () => {
     }
 
     try {
-      const res = await leadsService.create({ name: newLead.name, phone: newLead.phone, staffId: newLeadStaffId });
+      const res = await leadsService.create({
+        name: newLead.name,
+        email: newLead.email,
+        phone: newLead.phone,
+        status: 'NEW',
+        source: (newLead.source || 'Website') as any,
+        priority: (newLead.priority || undefined) as any,
+        budget: newLead.budget || '',
+        notes: newLead.notes || undefined,
+        assignedToId: newLeadStaffId,
+        tenantId: 'tenant_default',
+      });
       if (!res.success) {
         toast.error(res.message || "Failed to create lead");
         return;
@@ -381,13 +382,13 @@ export const LeadsPage = () => {
     }
   };
 
-  const handleEdit = (lead: Lead) => {
+  const handleEdit = (lead: LeadDb & { assignedTo?: string | null }) => {
     setSelectedLead(lead);
     setEditLead({
       name: lead.name,
       email: lead.email,
       phone: lead.phone,
-      project: lead.project || "",
+      project: lead.projectId || "",
       budget: lead.budget || "",
       source: lead.source,
       priority: lead.priority || "Medium",
@@ -404,7 +405,7 @@ export const LeadsPage = () => {
     toast.error("Edit is not implemented on backend yet");
   };
 
-  const handleDelete = (lead: Lead) => {
+  const handleDelete = (lead: LeadDb & { assignedTo?: string | null }) => {
     setSelectedLead(lead);
     setIsDeleteOpen(true);
   };
@@ -414,12 +415,12 @@ export const LeadsPage = () => {
     toast.error("Delete is not implemented on backend yet");
   };
 
-  const handleCall = (lead: Lead) => {
+  const handleCall = (lead: LeadDb & { assignedTo?: string | null }) => {
     toast.info(`Calling ${lead.phone}...`);
     window.open(`tel:${lead.phone}`, '_blank');
   };
 
-  const handleEmail = (lead: Lead) => {
+  const handleEmail = (lead: LeadDb & { assignedTo?: string | null }) => {
     toast.info(`Opening email client for ${lead.email}...`);
     window.open(`mailto:${lead.email}`, '_blank');
   };
@@ -442,11 +443,11 @@ export const LeadsPage = () => {
             <div className="flex items-center gap-1">Name <ArrowUpDown className="w-3 h-3" /></div>
           </TableHead>
           <TableHead className="font-semibold">Contact</TableHead>
-          <TableHead className="font-semibold">Company</TableHead>
+          <TableHead className="font-semibold">Project</TableHead>
           <TableHead className="font-semibold">Status</TableHead>
           <TableHead className="font-semibold">Priority</TableHead>
           <TableHead className="font-semibold">
-            <div className="flex items-center gap-1">Value <ArrowUpDown className="w-3 h-3" /></div>
+            <div className="flex items-center gap-1">Budget <ArrowUpDown className="w-3 h-3" /></div>
           </TableHead>
           <TableHead className="font-semibold">Source</TableHead>
           <TableHead className="text-right font-semibold">Actions</TableHead>
@@ -468,7 +469,6 @@ export const LeadsPage = () => {
             <TableCell>
               <div>
                 <p className="font-medium text-foreground">{lead.name}</p>
-                <p className="text-xs text-muted-foreground">{lead.title || 'N/A'}</p>
               </div>
             </TableCell>
             <TableCell>
@@ -483,7 +483,7 @@ export const LeadsPage = () => {
                 </div>
               </div>
             </TableCell>
-            <TableCell><span className="text-sm">{lead.project || 'N/A'}</span></TableCell>
+            <TableCell><span className="text-sm">{lead.projectId || 'N/A'}</span></TableCell>
             <TableCell>
               <Badge variant="outline" className={cn("text-xs border", getStatusStyle(lead.status))}>
                 {lead.status.charAt(0) + lead.status.slice(1).toLowerCase()}
@@ -494,7 +494,7 @@ export const LeadsPage = () => {
                 {lead.priority}
               </Badge>
             </TableCell>
-            <TableCell><span className="font-medium">{lead.value || lead.budget || 'N/A'}</span></TableCell>
+            <TableCell><span className="font-medium">{lead.budget || 'N/A'}</span></TableCell>
             <TableCell><Badge variant="outline" className="text-xs font-normal">{lead.source}</Badge></TableCell>
             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
               <DropdownMenu>
@@ -610,12 +610,11 @@ export const LeadsPage = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label>Project</Label>
-                    <Select value={newLead.project} onValueChange={(v) => setNewLead({ ...newLead, project: v })}>
-                      <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                      <SelectContent className="bg-popover">
-                        {projects.map((p) => (<SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
+                    <Input
+                      placeholder="Project ID (optional)"
+                      value={newLead.project}
+                      onChange={(e) => setNewLead({ ...newLead, project: e.target.value })}
+                    />
                   </div>
                   <div className="grid gap-2">
                     <Label>Budget</Label>
@@ -783,7 +782,7 @@ export const LeadsPage = () => {
               <Label>Full Name *</Label>
               <Input placeholder="Enter full name" value={editLead.name} onChange={(e) => setEditLead({ ...editLead, name: e.target.value })} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Email *</Label>
                 <Input type="email" placeholder="email@example.com" value={editLead.email} onChange={(e) => setEditLead({ ...editLead, email: e.target.value })} />
@@ -793,22 +792,23 @@ export const LeadsPage = () => {
                 <Input placeholder="+91 98765 43210" value={editLead.phone} onChange={(e) => setEditLead({ ...editLead, phone: e.target.value })} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Project</Label>
-                <Select value={editLead.project} onValueChange={(v) => setEditLead({ ...editLead, project: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                  <SelectContent className="bg-popover">
-                    {projects.map((p) => (<SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  placeholder="Project ID (optional)"
+                  value={editLead.project}
+                  onChange={(e) => setEditLead({ ...editLead, project: e.target.value })}
+                />
               </div>
               <div className="grid gap-2">
                 <Label>Budget</Label>
                 <Input placeholder="₹50L - ₹1Cr" value={editLead.budget} onChange={(e) => setEditLead({ ...editLead, budget: e.target.value })} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Source</Label>
                 <Select value={editLead.source} onValueChange={(v) => setEditLead({ ...editLead, source: v })}>

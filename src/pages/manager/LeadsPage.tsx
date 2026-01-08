@@ -63,7 +63,7 @@ import { ViewMode } from "@/components/leads/ViewToggle";
 import { DatePreset } from "@/components/leads/DateRangePicker";
 import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
 import { leadsService, staffService } from "@/api";
-import { Lead, projects } from "@/data/mockData";
+import type { LeadDb } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isWithinInterval } from "date-fns";
@@ -108,7 +108,7 @@ type StaffOption = { id: string; name: string };
 export const ManagerLeadsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [isLoading, setIsLoading] = useState(true);
-  const [leads, setLeads] = useState<(Lead & { priority?: string; value?: string; title?: string })[]>([]);
+  const [leads, setLeads] = useState<(LeadDb & { assignedTo?: string | null })[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [newLeadStaffId, setNewLeadStaffId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -119,7 +119,7 @@ export const ManagerLeadsPage = () => {
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [selectedLead, setSelectedLead] = useState<(LeadDb & { assignedTo?: string | null }) | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -188,37 +188,14 @@ export const ManagerLeadsPage = () => {
       if (!res.success) {
         throw new Error(res.message || "Failed to load leads");
       }
-
-      const data: Lead[] = (res.data || []).map((l) => {
-        const fakeEmail = `${l.name.toLowerCase().replace(/\s+/g, ".")}@example.com`;
-        const assignedName = staffNameById.get(l.staffId) || l.staffId;
+      const data = (res.data || []).map((l) => {
+        const assignedName = staffNameById.get(l.assignedToId || '') || l.assignedToId || null;
         return {
-          id: l.id,
-          name: l.name,
-          email: fakeEmail,
-          phone: l.phone,
-          status: "NEW",
-          source: "Website",
-          budget: "",
-          priority: undefined,
-          assignedToId: l.staffId,
+          ...l,
           assignedTo: assignedName,
-          tenantId: "t_soundarya",
-          notes: "",
-          activities: [],
-          createdAt: l.createdAt,
-          updatedAt: undefined,
-        } as Lead;
+        };
       });
-      const priorities: ('High' | 'Medium' | 'Low')[] = ['High', 'Medium', 'Low'];
-      const titles = ["CTO", "VP of Operations", "Marketing Director", "Founder & CEO", "Manager"];
-      const enrichedLeads = data.map((lead, i) => ({
-        ...lead,
-        priority: lead.priority || priorities[i % 3],
-        value: `₹${(Math.floor(Math.random() * 150) + 50)}L`,
-        title: titles[i % 5],
-      }));
-      setLeads(enrichedLeads);
+      setLeads(data);
     } catch (error) {
       toast.error("Failed to load leads");
     } finally {
@@ -231,7 +208,7 @@ export const ManagerLeadsPage = () => {
       const matchesSearch =
         lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         lead.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (lead.project || "").toLowerCase().includes(searchTerm.toLowerCase());
+        (lead.projectId || "").toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
       const matchesPriority = priorityFilter === "all" || lead.priority === priorityFilter;
       const matchesSource = sourceFilter === "all" || lead.source === sourceFilter;
@@ -274,7 +251,15 @@ export const ManagerLeadsPage = () => {
   const handleExportAll = () => {
     const headers = ["Name", "Email", "Phone", "Project", "Status", "Priority", "Value", "Source", "Assigned To"];
     const rows = filteredLeads.map((lead) => [
-      lead.name, lead.email, lead.phone, lead.project || "", lead.status, lead.priority || "", lead.value || "", lead.source, lead.assignedTo || "",
+      lead.name,
+      lead.email,
+      lead.phone,
+      lead.projectId || "",
+      lead.status,
+      lead.priority || "",
+      lead.budget || "",
+      lead.source,
+      lead.assignedTo || "",
     ]);
     downloadCsv("manager-leads-export", headers, rows);
     toast.success("Leads exported successfully");
@@ -283,7 +268,15 @@ export const ManagerLeadsPage = () => {
   const handleExportByStatus = (status: string) => {
     const filtered = leads.filter((l) => l.status === status);
     const headers = ["Name", "Email", "Phone", "Project", "Status", "Source", "Assigned To"];
-    const rows = filtered.map((lead) => [lead.name, lead.email, lead.phone, lead.project || "", lead.status, lead.source, lead.assignedTo || ""]);
+    const rows = filtered.map((lead) => [
+      lead.name,
+      lead.email,
+      lead.phone,
+      lead.projectId || "",
+      lead.status,
+      lead.source,
+      lead.assignedTo || "",
+    ]);
     downloadCsv(`leads-${status.toLowerCase()}`, headers, rows);
     toast.success(`${status} leads exported`);
   };
@@ -294,10 +287,12 @@ export const ManagerLeadsPage = () => {
 
   const handleBulkAssign = async (agentId: string) => {
     try {
-      await Promise.all(Array.from(selectedIds).map((id) => leadsService.assign(id, agentId)));
-      await loadLeads();
+      const idsToAssign = Array.from(selectedIds);
+      await Promise.all(idsToAssign.map((id) => leadsService.assign(id, agentId)));
+
+      setLeads((prev) => prev.filter((l) => !idsToAssign.includes(l.id)));
       setSelectedIds(new Set());
-      toast.success(`Assigned ${selectedIds.size} leads`);
+      toast.success(`Assigned ${idsToAssign.length} leads`);
     } catch {
       toast.error("Failed to assign leads");
     }
@@ -352,7 +347,18 @@ export const ManagerLeadsPage = () => {
     }
 
     try {
-      const res = await leadsService.create({ name: newLead.name, phone: newLead.phone, staffId: newLeadStaffId });
+      const res = await leadsService.create({
+        name: newLead.name,
+        email: newLead.email,
+        phone: newLead.phone,
+        status: 'NEW',
+        source: (newLead.source || 'Website') as any,
+        priority: (newLead.priority || undefined) as any,
+        budget: newLead.budget || '',
+        notes: newLead.notes || undefined,
+        assignedToId: newLeadStaffId,
+        tenantId: 'tenant_default',
+      });
       if (!res.success) {
         toast.error(res.message || "Failed to create lead");
         return;
@@ -425,14 +431,14 @@ export const ManagerLeadsPage = () => {
         {paginatedLeads.map((lead) => (
           <TableRow key={lead.id} className={cn("cursor-pointer hover:bg-muted/50 transition-colors", selectedIds.has(lead.id) && "bg-primary/5")} onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}>
             <TableCell onClick={(e) => e.stopPropagation()}><Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} /></TableCell>
-            <TableCell><div><p className="font-medium">{lead.name}</p><p className="text-xs text-muted-foreground">{lead.title}</p></div></TableCell>
+            <TableCell><div><p className="font-medium">{lead.name}</p></div></TableCell>
             <TableCell>
               <div className="space-y-1">
                 <div className="flex items-center gap-2 text-sm"><Mail className="w-3 h-3 text-muted-foreground" /><span className="text-muted-foreground">{lead.email}</span></div>
                 <div className="flex items-center gap-2 text-sm"><Phone className="w-3 h-3 text-muted-foreground" /><span className="text-muted-foreground">{lead.phone}</span></div>
               </div>
             </TableCell>
-            <TableCell><span className="text-sm">{lead.project || 'N/A'}</span></TableCell>
+            <TableCell><span className="text-sm">{lead.projectId || 'N/A'}</span></TableCell>
             <TableCell><Badge variant="outline" className={cn("text-xs border", getStatusStyle(lead.status))}>{lead.status.charAt(0) + lead.status.slice(1).toLowerCase()}</Badge></TableCell>
             <TableCell><Badge variant="secondary" className={cn("text-xs", getPriorityStyle(lead.priority || ''))}>{lead.priority}</Badge></TableCell>
             <TableCell><Badge variant="outline" className="text-xs font-normal">{lead.source}</Badge></TableCell>
@@ -493,10 +499,11 @@ export const ManagerLeadsPage = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label>Project</Label>
-                    <Select value={newLead.project} onValueChange={(v) => setNewLead({ ...newLead, project: v })}>
-                      <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                      <SelectContent className="bg-popover">{projects.map((p) => (<SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>))}</SelectContent>
-                    </Select>
+                    <Input
+                      placeholder="Project ID (optional)"
+                      value={newLead.project}
+                      onChange={(e) => setNewLead({ ...newLead, project: e.target.value })}
+                    />
                   </div>
                   <div className="grid gap-2">
                     <Label>Priority</Label>
@@ -627,12 +634,11 @@ export const ManagerLeadsPage = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Project</Label>
-                <Select value={editLead.project} onValueChange={(v) => setEditLead({ ...editLead, project: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                  <SelectContent className="bg-popover">
-                    {projects.map((p) => (<SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  placeholder="Project ID (optional)"
+                  value={editLead.project}
+                  onChange={(e) => setEditLead({ ...editLead, project: e.target.value })}
+                />
               </div>
               <div className="grid gap-2">
                 <Label>Budget</Label>

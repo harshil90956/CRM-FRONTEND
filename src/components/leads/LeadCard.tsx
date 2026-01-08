@@ -9,11 +9,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { Lead } from "@/data/mockData";
+import type { LeadDb } from "@/api/services/leads.service";
 import { format } from "date-fns";
 
 interface LeadCardProps {
-  lead: Lead & { priority?: string; value?: string; title?: string };
+  lead: LeadDb & {
+    assignedTo?: string | null;
+  };
   selected: boolean;
   onSelect: () => void;
   onClick: () => void;
@@ -61,9 +63,6 @@ export const LeadCard = ({ lead, selected, onSelect, onClick, variant = 'small' 
           </div>
           <div>
             <h4 className="font-semibold text-foreground">{lead.name}</h4>
-            {isLarge && lead.title && (
-              <p className="text-sm text-muted-foreground">{lead.title}</p>
-            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -99,7 +98,7 @@ export const LeadCard = ({ lead, selected, onSelect, onClick, variant = 'small' 
         {isLarge && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Building className="w-3 h-3" />
-            <span>{lead.project || 'N/A'}</span>
+            <span>{lead.projectId || 'N/A'}</span>
           </div>
         )}
       </div>
@@ -126,7 +125,7 @@ export const LeadCard = ({ lead, selected, onSelect, onClick, variant = 'small' 
         <div className="mt-3 pt-3 border-t border-border">
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Value:</span>
-            <span className="font-medium">{lead.value || lead.budget || 'N/A'}</span>
+            <span className="font-medium">{lead.budget || 'N/A'}</span>
           </div>
           {lead.assignedTo && (
             <div className="flex items-center justify-between text-sm mt-1">
