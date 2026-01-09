@@ -41,7 +41,20 @@ const toJsonOrText = async (res: Response): Promise<unknown> => {
 
 const getAccessToken = (): string | null => {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('crm_accessToken');
+
+  const keys = ['crm_accessToken', 'accessToken', 'token'];
+
+  for (const k of keys) {
+    const v = localStorage.getItem(k);
+    if (v) return v;
+  }
+
+  for (const k of keys) {
+    const v = sessionStorage.getItem(k);
+    if (v) return v;
+  }
+
+  return null;
 };
 
 async function requestRaw<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {

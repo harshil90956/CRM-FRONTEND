@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserTable } from "@/components/users/UserTable";
 import { AddUserModal } from "@/components/users/AddUserModal";
-import { mockApi } from "@/lib/mockApi";
+import { adminUsersService } from "@/api/services/admin-users.service";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 
@@ -34,15 +34,24 @@ export const UsersPage = () => {
 
   const fetchUsers = async () => {
     try {
-      const allUsers = await mockApi.get<any[]>("/users");
-      // Filter only managers and agents
-      const filtered = allUsers.filter(
-        (u) => u.role === "manager" || u.role === "agent" || u.role === "MANAGER" || u.role === "AGENT"
-      ).map((u) => ({
-        ...u,
-        role: u.role.toLowerCase() as "manager" | "agent",
-        isActive: u.isActive !== false,
-      }));
+      const res = await adminUsersService.list();
+      if (!res.success) {
+        throw new Error(res.message || "Failed to fetch users");
+      }
+
+      const data = res.data || [];
+      const filtered = data
+        .filter((u) => u.role === "MANAGER" || u.role === "AGENT")
+        .map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          phone: u.phone || "",
+          role: u.role.toLowerCase() as "manager" | "agent",
+          isActive: Boolean(u.isActive),
+          createdAt: u.createdAt,
+        }));
+
       setUsers(filtered);
     } catch (error) {
       console.error("Failed to fetch users:", error);

@@ -20,6 +20,7 @@ import { KPICard } from "@/components/cards/KPICard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -184,7 +185,7 @@ export const ManagerLeadsPage = () => {
   const loadLeads = async () => {
     setIsLoading(true);
     try {
-      const res = await leadsService.list();
+      const res = await leadsService.listManagerLeads();
       if (!res.success) {
         throw new Error(res.message || "Failed to load leads");
       }
@@ -290,7 +291,7 @@ export const ManagerLeadsPage = () => {
   const handleBulkAssign = async (agentId: string) => {
     try {
       const idsToAssign = Array.from(selectedIds);
-      await Promise.all(idsToAssign.map((id) => leadsService.assign(id, agentId)));
+      await Promise.all(idsToAssign.map((id) => leadsService.assignManagerLead(id, agentId)));
 
       setLeads((prev) => prev.filter((l) => !idsToAssign.includes(l.id)));
       setSelectedIds(new Set());
@@ -362,7 +363,73 @@ export const ManagerLeadsPage = () => {
       description="Manage leads"
       sidebarCollapsed={sidebarCollapsed}
     >
-      <div />
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <KPICard title="Total Leads" value={leads.length} icon={Users} delay={0} />
+          <KPICard title="Assigned" value={leads.filter((l) => Boolean(l.assignedToId)).length} icon={Users} delay={0.1} />
+          <KPICard title="Unassigned" value={leads.filter((l) => !l.assignedToId).length} icon={Users} delay={0.2} />
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+          <Input
+            placeholder="Search leads..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="sm:max-w-md"
+          />
+        </div>
+
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : filteredLeads.length === 0 ? (
+          <Card className="p-6">
+            <p className="text-sm text-muted-foreground">
+              No leads found for this manager. Leads appear here only when they are assigned to one of your agents.
+            </p>
+          </Card>
+        ) : (
+          <Card className="p-0 overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox checked={selectedIds.size === paginatedLeads.length && paginatedLeads.length > 0} onCheckedChange={toggleSelectAll} />
+                  </TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Assigned</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginatedLeads.map((lead) => (
+                  <TableRow key={lead.id}>
+                    <TableCell>
+                      <Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} />
+                    </TableCell>
+                    <TableCell className="font-medium">{lead.name}</TableCell>
+                    <TableCell>{lead.email}</TableCell>
+                    <TableCell>{lead.phone}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={cn("text-xs border", getStatusStyle(lead.status))}>
+                        {lead.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{(lead as any).assignedTo || lead.assignedToId || 'Unassigned'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        )}
+
+        <PaginationBar page={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+      </div>
     </PageWrapper>
   );
 };

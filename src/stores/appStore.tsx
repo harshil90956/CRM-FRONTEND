@@ -54,10 +54,36 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [leads, setLeads] = useState(defaultLeads);
   const [isLoading, setIsLoading] = useState(false);
 
+  const getStoredToken = (): string | null => {
+    if (typeof window === 'undefined') return null;
+    const keys = ['crm_accessToken', 'accessToken', 'token'];
+
+    for (const k of keys) {
+      const v = localStorage.getItem(k);
+      if (v) return v;
+    }
+
+    for (const k of keys) {
+      const v = sessionStorage.getItem(k);
+      if (v) return v;
+    }
+
+    return null;
+  };
+
+  const clearStoredToken = () => {
+    if (typeof window === 'undefined') return;
+    const keys = ['crm_accessToken', 'accessToken', 'token'];
+    for (const k of keys) {
+      localStorage.removeItem(k);
+      sessionStorage.removeItem(k);
+    }
+  };
+
   React.useEffect(() => {
     void (async () => {
       if (typeof window === 'undefined') return;
-      const token = localStorage.getItem('crm_accessToken');
+      const token = getStoredToken();
       if (!token) return;
 
       try {
@@ -65,7 +91,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setCurrentUser(me);
         setIsAuthenticated(true);
       } catch {
-        localStorage.removeItem('crm_accessToken');
+        clearStoredToken();
         setCurrentUser(null);
         setIsAuthenticated(false);
       }
@@ -96,22 +122,26 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const login = useCallback(async (email: string, otp: string): Promise<CurrentUser | null> => {
     setIsLoading(true);
     try {
-      const res = await httpClient.rawPost<{ accessToken: string; user: CurrentUser }>('/auth/verify-otp', {
+      const res = await httpClient.rawPost<any>('/auth/verify-otp', {
         email,
         otp,
       });
 
-      if (!res?.accessToken || !res?.user?.id) {
+      const accessToken: string | undefined = res?.accessToken ?? res?.data?.accessToken;
+      const user: CurrentUser | undefined = res?.user ?? res?.data?.user;
+
+      if (!accessToken || !user?.id) {
         return null;
       }
 
       if (typeof window !== 'undefined') {
-        localStorage.setItem('crm_accessToken', res.accessToken);
+        localStorage.setItem('crm_accessToken', accessToken);
+        sessionStorage.setItem('crm_accessToken', accessToken);
       }
 
-      setCurrentUser(res.user);
+      setCurrentUser(user);
       setIsAuthenticated(true);
-      return res.user;
+      return user;
     } catch {
       return null;
     } finally {
@@ -121,7 +151,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = useCallback(() => {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('crm_accessToken');
+      clearStoredToken();
       localStorage.removeItem('crm_currentUser');
     }
     setCurrentUser(null);
