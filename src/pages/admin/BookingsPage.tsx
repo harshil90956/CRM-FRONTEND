@@ -15,19 +15,35 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { BookingCard } from "@/components/booking/BookingCard";
 import { BookingDetailSheet } from "@/components/booking/BookingDetailSheet";
-import { Booking, BookingStatus, bookings as defaultBookings } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
+import { Booking } from "@/data/mockData";
+import { bookingsService, paymentsService } from "@/api";
 import { toast } from "@/hooks/use-toast";
 import { formatPrice } from "@/lib/unitHelpers";
+import { computeAdminBookingsMetrics } from "@/lib/bookingMetrics";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 
 type PaymentMethod = 'Bank Transfer' | 'UPI' | 'Cash' | 'Cheque' | 'RTGS' | 'Card' | 'Net Banking' | 'Online';
 
+const toPaymentMethodEnum = (method: PaymentMethod) => {
+  const map: Record<PaymentMethod, any> = {
+    'Bank Transfer': 'Bank_Transfer',
+    'Net Banking': 'Net_Banking',
+    'UPI': 'UPI',
+    'Cash': 'Cash',
+    'Cheque': 'Cheque',
+    'RTGS': 'RTGS',
+    'Card': 'Card',
+    'Online': 'Online',
+  };
+  return map[method];
+};
+
 export const AdminBookingsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [search, setSearch] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>(defaultBookings);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -40,62 +56,62 @@ export const AdminBookingsPage = () => {
   });
 
   const loadBookings = async () => {
-    const data = await mockApi.get<Booking[]>('/bookings');
-    setBookings(data);
+    const res = await bookingsService.list();
+    setBookings(((res as any)?.data ?? []) as Booking[]);
+  };
+
+  const loadPayments = async () => {
+    const res = await paymentsService.list();
+    setPayments(((res as any)?.data ?? []) as any[]);
   };
 
   useEffect(() => {
     loadBookings();
+    loadPayments();
   }, []);
 
-  const paymentPendingStatuses: BookingStatus[] = [
-    'PAYMENT_PENDING',
-    'BOOKING_CONFIRMED',
-    'HOLD_CONFIRMED',
-  ];
+  const metrics = computeAdminBookingsMetrics(bookings, payments);
 
-  const paymentPending = bookings.filter((b) => paymentPendingStatuses.includes(b.status));
-  const completed = bookings.filter(b => b.status === 'BOOKED');
-  const totalRevenue = completed.reduce((sum, b) => sum + b.totalPrice, 0);
-  const pendingRevenue = paymentPending.reduce((sum, b) => sum + b.totalPrice, 0);
+  const paymentPending = metrics.paymentPendingBookings;
+  const completed = metrics.completedBookings;
+  const cancelled = metrics.cancelledBookings;
+
+  const totalRevenue = metrics.totalRevenue;
+  const pendingRevenue = metrics.pendingRevenue;
 
   const handleRecordPayment = async () => {
     if (!selectedBooking) return;
     
     setLoading(true);
     try {
-      // Record payment
-      await mockApi.recordPayment({
-        customerId: selectedBooking.customerId,
-        customerName: selectedBooking.customerName,
-        unitId: selectedBooking.unitId,
-        unitNo: selectedBooking.unitNo,
+      await paymentsService.create({
         bookingId: selectedBooking.id,
+        customerId: selectedBooking.customerId,
+        unitId: selectedBooking.unitId,
+        tenantId: (selectedBooking as any).tenantId,
         amount: Number(paymentForm.amount) || selectedBooking.tokenAmount,
-        type: 'Booking',
-        method: paymentForm.mode,
-        date: new Date().toISOString(),
         status: 'Received',
+        method: toPaymentMethodEnum(paymentForm.mode),
+        paidAt: new Date().toISOString(),
         notes: paymentForm.remarks,
-        tenantId: selectedBooking.tenantId,
-      });
+        paymentType: 'Booking',
+      } as any);
 
-      // Update booking status
-      await mockApi.patch('/bookings', selectedBooking.id, {
-        status: 'BOOKED',
-        bookedAt: new Date().toISOString(),
-        paymentMode: paymentForm.mode,
-        paymentRecordedAt: new Date().toISOString(),
-        paymentRemarks: paymentForm.remarks,
-      });
+      const paymentsRes = await paymentsService.list();
+      const nextPayments = (((paymentsRes as any)?.data ?? []) as any[]);
+      setPayments(nextPayments);
 
-      // Update unit status
-      await mockApi.patch('/units', selectedBooking.unitId, { status: 'SOLD' });
+      const bookingMetrics = computeAdminBookingsMetrics([selectedBooking], nextPayments);
+      const remaining = bookingMetrics.remainingAmountByBookingId.get(String(selectedBooking.id)) ?? 0;
 
-      toast({ title: "Payment Recorded", description: `Booking for ${selectedBooking.unitNo} is now complete` });
+      await bookingsService.updateStatus(selectedBooking.id, {
+        status: remaining === 0 ? 'BOOKED' : 'PAYMENT_PENDING',
+      } as any);
+
+      toast({ title: "Payment Recorded", description: `Payment recorded for ${selectedBooking.unitNo}` });
       setPaymentModalOpen(false);
       setPaymentForm({ amount: '', mode: 'Bank Transfer', remarks: '' });
-      loadBookings();
+      await loadBookings();
     } catch (error) {
       toast({ title: "Error", description: "Failed to record payment", variant: "destructive" });
     } finally {
@@ -118,17 +134,23 @@ export const AdminBookingsPage = () => {
     setPaymentModalOpen(true);
   };
 
-  const handleDownloadReceipt = (booking: Booking) => {
-    mockApi.downloadReceipt('booking', booking);
+  const handleDownloadReceipt = (_booking: Booking) => {
+    toast({ title: 'Disabled', description: 'Receipt download is disabled until backend receipt API exists.', variant: 'destructive' });
   };
 
+  const getPaidAmount = (bookingId: string) => metrics.paidAmountByBookingId.get(String(bookingId)) ?? 0;
+  const getRemainingAmount = (bookingId: string) => metrics.remainingAmountByBookingId.get(String(bookingId)) ?? 0;
+  const hasTokenButNoPayment = (b: Booking) => (Number((b as any)?.tokenAmount) || 0) > 0 && getPaidAmount(b.id) === 0;
+
+  const searchLower = (search ?? '').toLowerCase();
   const filteredPending = paymentPending.filter(b => 
-    b.customerName.toLowerCase().includes(search.toLowerCase()) ||
-    b.unitNo.toLowerCase().includes(search.toLowerCase())
+    (b.customerName ?? '').toLowerCase().includes(searchLower) ||
+    (b.unitNo ?? '').toLowerCase().includes(searchLower)
   );
 
   const { page: pendingPage, setPage: setPendingPage, totalPages: pendingTotalPages, pageItems: paginatedPending } = useClientPagination(filteredPending, { pageSize: 10 });
   const { page: completedPage, setPage: setCompletedPage, totalPages: completedTotalPages, pageItems: paginatedCompleted } = useClientPagination(completed, { pageSize: 10 });
+  const { page: cancelledPage, setPage: setCancelledPage, totalPages: cancelledTotalPages, pageItems: paginatedCancelled } = useClientPagination(cancelled, { pageSize: 10 });
   const { page: allPage, setPage: setAllPage, totalPages: allTotalPages, pageItems: paginatedAll } = useClientPagination(bookings, { pageSize: 10 });
 
   useEffect(() => {
@@ -153,6 +175,7 @@ export const AdminBookingsPage = () => {
           <TabsList className="flex flex-wrap h-auto justify-start">
             <TabsTrigger value="pending">Payment Pending ({paymentPending.length})</TabsTrigger>
             <TabsTrigger value="completed">Completed ({completed.length})</TabsTrigger>
+            <TabsTrigger value="cancelled">Cancelled ({cancelled.length})</TabsTrigger>
             <TabsTrigger value="all">All Bookings</TabsTrigger>
           </TabsList>
           <div className="flex flex-wrap items-center gap-2">
@@ -174,17 +197,30 @@ export const AdminBookingsPage = () => {
             paginatedPending.map((booking, index) => (
               <BookingCard
                 key={booking.id}
-                booking={booking}
+                booking={{ ...booking, status: 'PAYMENT_PENDING' } as any}
                 onClick={() => handleViewDetails(booking)}
                 delay={index * 0.05}
                 showActions
                 actions={
-                  <Button 
-                    size="sm" 
-                    onClick={(e) => { e.stopPropagation(); handleOpenPaymentModal(booking); }}
-                  >
-                    <CreditCard className="w-4 h-4 mr-1" /> Record Payment
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {hasTokenButNoPayment(booking) && (
+                      <Badge variant="destructive" className="text-xs">
+                        Token not recorded in payments
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className="text-xs">
+                      Paid: {formatPrice(getPaidAmount(booking.id))}
+                    </Badge>
+                    <Badge variant="outline" className="text-xs">
+                      Remaining: {formatPrice(getRemainingAmount(booking.id))}
+                    </Badge>
+                    <Button 
+                      size="sm" 
+                      onClick={(e) => { e.stopPropagation(); handleOpenPaymentModal(booking); }}
+                    >
+                      <CreditCard className="w-4 h-4 mr-1" /> Record Payment
+                    </Button>
+                  </div>
                 }
               />
             ))
@@ -197,23 +233,57 @@ export const AdminBookingsPage = () => {
           {paginatedCompleted.map((booking, index) => (
             <BookingCard
               key={booking.id}
-              booking={booking}
+              booking={{ ...booking, status: 'BOOKED' } as any}
               onClick={() => handleViewDetails(booking)}
               delay={index * 0.05}
               showActions
               actions={
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={(e) => { e.stopPropagation(); handleDownloadReceipt(booking); }}
-                >
-                  <Download className="w-4 h-4 mr-1" /> Receipt
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {hasTokenButNoPayment(booking) && (
+                    <Badge variant="destructive" className="text-xs">
+                      Token not recorded in payments
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className="text-xs">
+                    Paid: {formatPrice(getPaidAmount(booking.id))}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    Remaining: {formatPrice(getRemainingAmount(booking.id))}
+                  </Badge>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={(e) => { e.stopPropagation(); handleDownloadReceipt(booking); }}
+                  >
+                    <Download className="w-4 h-4 mr-1" /> Receipt
+                  </Button>
+                </div>
               }
             />
           ))}
 
           <PaginationBar page={completedPage} totalPages={completedTotalPages} onPageChange={setCompletedPage} className="px-0" />
+        </TabsContent>
+
+        <TabsContent value="cancelled" className="space-y-4">
+          {paginatedCancelled.length === 0 ? (
+            <Card className="p-12 text-center">
+              <FileText className="w-12 h-12 mx-auto text-muted-foreground/30 mb-4" />
+              <h3 className="font-semibold mb-2">No Cancelled Bookings</h3>
+              <p className="text-muted-foreground">Cancelled/refunded bookings will appear here</p>
+            </Card>
+          ) : (
+            paginatedCancelled.map((booking, index) => (
+              <BookingCard
+                key={booking.id}
+                booking={booking}
+                onClick={() => handleViewDetails(booking)}
+                delay={index * 0.05}
+              />
+            ))
+          )}
+
+          <PaginationBar page={cancelledPage} totalPages={cancelledTotalPages} onPageChange={setCancelledPage} className="px-0" />
         </TabsContent>
 
         <TabsContent value="all" className="space-y-4">

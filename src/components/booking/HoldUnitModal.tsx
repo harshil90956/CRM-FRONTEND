@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Unit } from "@/data/mockData";
 import { formatPrice, getUnitDisplayType, getUnitArea } from "@/lib/unitHelpers";
-import { mockApi } from "@/lib/mockApi";
+import { bookingsService } from "@/api";
 import { toast } from "@/hooks/use-toast";
+import { useAppStore } from "@/stores/appStore";
 
 interface HoldUnitModalProps {
   open: boolean;
@@ -19,6 +20,7 @@ interface HoldUnitModalProps {
 }
 
 export const HoldUnitModal = ({ open, onOpenChange, unit, onSuccess }: HoldUnitModalProps) => {
+  const { currentUser } = useAppStore();
   const [step, setStep] = useState<'form' | 'success'>('form');
   const [loading, setLoading] = useState(false);
   const [bookingData, setBookingData] = useState<any>(null);
@@ -35,25 +37,38 @@ export const HoldUnitModal = ({ open, onOpenChange, unit, onSuccess }: HoldUnitM
     e.preventDefault();
     if (!unit) return;
 
+    if (!currentUser?.id) {
+      toast({ title: 'Error', description: 'You must be logged in to request a hold.', variant: 'destructive' });
+      return;
+    }
+    if (!unit.projectId) {
+      toast({ title: 'Error', description: 'Unit is missing projectId. Cannot create booking.', variant: 'destructive' });
+      return;
+    }
+
+    const tenantId = (currentUser as any)?.tenantId ?? (unit as any)?.tenantId;
+    if (!tenantId) {
+      toast({ title: 'Error', description: 'Missing tenantId. Cannot create booking.', variant: 'destructive' });
+      return;
+    }
+
     setLoading(true);
     try {
-      // Frontend demo: fixed logged-in customer
-      const customerId = 'u_cust_2';
-
-      const result = await mockApi.holdUnit(
-        unit.id,
-        customerId,
-        {
-          name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          tenantId: 't_soundarya',
-        },
-        Number(formData.tokenAmount),
-        48
-      );
+      const result = await bookingsService.hold({
+        status: 'HOLD_REQUESTED',
+        unitId: unit.id,
+        customerId: currentUser.id,
+        projectId: unit.projectId,
+        tenantId,
+        totalPrice: unit.price,
+        tokenAmount: Number(formData.tokenAmount),
+        customerName: formData.name,
+        customerEmail: formData.email,
+        customerPhone: formData.phone,
+        notes: formData.notes || undefined,
+      } as any);
       
-      setBookingData(result);
+      setBookingData((result as any)?.data ?? result);
       setStep('success');
       toast({ title: "Hold Request Submitted", description: "Your hold request has been submitted successfully." });
       onSuccess?.();
@@ -65,9 +80,7 @@ export const HoldUnitModal = ({ open, onOpenChange, unit, onSuccess }: HoldUnitM
   };
 
   const handleDownloadReceipt = () => {
-    if (bookingData) {
-      mockApi.downloadReceipt('token', bookingData);
-    }
+    toast({ title: 'Disabled', description: 'Receipt download is disabled until backend receipt endpoint exists.', variant: 'destructive' });
   };
 
   const handleClose = () => {

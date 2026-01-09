@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Unit } from "@/data/mockData";
 import { getUnitDisplayType, getUnitArea, formatPrice, isResidential } from "@/lib/unitHelpers";
 import { HoldUnitModal } from "@/components/booking/HoldUnitModal";
-import { mockApi } from "@/lib/mockApi";
+import { httpClient } from "@/api";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 
@@ -24,8 +24,8 @@ export const CustomerPropertiesPage = () => {
   const [holdModalOpen, setHoldModalOpen] = useState(false);
 
   const loadUnits = async () => {
-    const data = await mockApi.get<Unit[]>("/units");
-    setUnits(data);
+    const res = await httpClient.get<Unit[]>("/units");
+    setUnits(((res as any)?.data ?? []) as Unit[]);
   };
 
   useEffect(() => {
@@ -44,7 +44,7 @@ export const CustomerPropertiesPage = () => {
 
   const availableUnits = units.filter(u => u.status === 'AVAILABLE');
   const filteredUnits = availableUnits.filter(u => {
-    const matchesSearch = u.project.toLowerCase().includes(search.toLowerCase()) || u.unitNo.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = (u.project || '').toLowerCase().includes(search.toLowerCase()) || u.unitNo.toLowerCase().includes(search.toLowerCase());
     const matchesType = typeFilter === "all" || (isResidential(u) && `${u.bedrooms} BHK` === typeFilter);
     return matchesSearch && matchesType;
   });

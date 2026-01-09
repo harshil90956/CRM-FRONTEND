@@ -8,29 +8,35 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BookingCard } from "@/components/booking/BookingCard";
 import { BookingDetailSheet } from "@/components/booking/BookingDetailSheet";
 import { BookingTimeline } from "@/components/booking/BookingTimeline";
-import { Booking, bookings as defaultBookings } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
+import { Booking } from "@/data/mockData";
+import { bookingsService } from "@/api";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { useAppStore } from "@/stores/appStore";
 
 export const CustomerBookingsPage = () => {
+  const { currentUser } = useAppStore();
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [bookings, setBookings] = useState<Booking[]>(defaultBookings);
+  const [bookings, setBookings] = useState<Booking[]>([]);
 
-  // Mock customer ID - in real app, get from auth
-  const customerId = 'u_cust_2';
+  const customerId = currentUser?.id;
 
   const loadBookings = async () => {
-    const data = await mockApi.get<Booking[]>('/bookings');
-    setBookings(data);
+    const res = await bookingsService.list();
+    setBookings(((res as any)?.data ?? []) as Booking[]);
   };
 
   useEffect(() => {
     loadBookings();
-  }, []);
+  }, [customerId]);
 
-  const myBookings = bookings.filter(b => b.customerId === customerId || b.customerId.includes('cust'));
+  const myBookings = customerId ? bookings.filter((b) => b.customerId === customerId) : [];
+
+  const isCancelRequested = (b: Booking) => {
+    const raw = typeof (b as any)?.managerNotes === 'string' ? String((b as any).managerNotes) : '';
+    return b.status === 'BOOKING_PENDING_APPROVAL' && raw.startsWith('CANCEL_REQUESTED|');
+  };
 
   const activeBookings = myBookings.filter(b => !['BOOKED', 'CANCELLED', 'REFUNDED'].includes(b.status));
   const completedBookings = myBookings.filter(b => b.status === 'BOOKED');
@@ -108,7 +114,10 @@ export const CustomerBookingsPage = () => {
                     </div>
                     <BookingTimeline status={booking.status} className="mb-4" />
                     <p className="text-sm text-muted-foreground text-center">
-                      Your booking is currently at: <span className="font-medium text-primary">{booking.status.replace(/_/g, ' ')}</span>
+                      Your booking is currently at:{' '}
+                      <span className="font-medium text-primary">
+                        {isCancelRequested(booking) ? 'Cancel Requested' : booking.status.replace(/_/g, ' ')}
+                      </span>
                     </p>
                   </Card>
                 </motion.div>

@@ -20,8 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { mockApi } from "@/lib/mockApi";
-import { units as defaultUnits } from "@/data/mockData";
+import { httpClient } from "@/api";
 
 interface PaymentFormProps {
   open: boolean;
@@ -60,8 +59,17 @@ export const PaymentForm = ({ open, onOpenChange, onSuccess }: PaymentFormProps)
   const [receiptId, setReceiptId] = useState<string | null>(null);
 
   useEffect(() => {
-    const stored = mockApi.getAll("units");
-    setUnits(stored.length > 0 ? stored : defaultUnits);
+    if (!open) return;
+    const loadUnits = async () => {
+      try {
+        const res = await httpClient.get<any[]>("/units");
+        setUnits(((res as any)?.data ?? []) as any[]);
+      } catch (e) {
+        setUnits([]);
+      }
+    };
+
+    loadUnits();
   }, [open]);
 
   const bookedUnits = units.filter((u) => u.status === "Booked" || u.status === "Hold");
@@ -72,51 +80,13 @@ export const PaymentForm = ({ open, onOpenChange, onSuccess }: PaymentFormProps)
       return;
     }
 
-    setIsLoading(true);
-    try {
-      const newPayment = await mockApi.post("/payments", {
-        ...payment,
-        status: "Received",
-        receiptNo: `RCP-${Date.now()}`,
-      });
-      setReceiptId((newPayment as any).id);
-      toast.success("Payment recorded successfully");
-      onSuccess?.();
-    } catch (error) {
-      toast.error("Failed to record payment");
-    } finally {
-      setIsLoading(false);
-    }
+    toast.error(
+      "Payment recording is disabled here. Use the booking-based payment flow so bookingId/customerId/unitId/tenantId are sent to backend.",
+    );
   };
 
   const handleDownloadReceipt = () => {
-    // Create a mock receipt as a blob
-    const receiptContent = `
-PAYMENT RECEIPT
-===============
-
-Receipt No: RCP-${Date.now()}
-Date: ${payment.date}
-
-Customer: ${payment.customer}
-Unit: ${payment.unit}
-Amount: ${payment.amount}
-Payment Type: ${payment.type}
-Payment Method: ${paymentMethods.find(m => m.value === payment.method)?.label}
-
-Notes: ${payment.notes || "N/A"}
-
-Thank you for your payment!
-    `;
-
-    const blob = new Blob([receiptContent], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `receipt-${Date.now()}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Receipt downloaded");
+    toast.error("Receipt download is disabled until a backend receipt endpoint exists.");
   };
 
   const handleClose = () => {

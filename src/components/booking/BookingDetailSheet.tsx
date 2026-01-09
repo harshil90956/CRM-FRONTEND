@@ -1,21 +1,20 @@
 import { useEffect, useState, useCallback } from "react";
-import { Download, Phone, Mail, MessageSquare, Calendar, User, Building2, IndianRupee, Send, X, Check } from "lucide-react";
+import { Download, Phone, Mail, User, Building2, IndianRupee, X, Check } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BookingTimeline } from "./BookingTimeline";
-import { Booking, CommunicationLog, Payment, communicationLogs } from "@/data/mockData";
+import { Booking, Payment } from "@/data/mockData";
 import { formatPrice } from "@/lib/unitHelpers";
-import { mockApi } from "@/lib/mockApi";
+import { bookingsService, paymentsService } from "@/api";
 import { toast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
+import { PaymentDetailDrawer } from "@/components/payments/PaymentDetailDrawer";
 
 interface BookingDetailSheetProps {
   open: boolean;
@@ -26,20 +25,42 @@ interface BookingDetailSheetProps {
 }
 
 export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefresh }: BookingDetailSheetProps) => {
-  const [newLogType, setNewLogType] = useState<CommunicationLog['type']>('Call');
-  const [newLogMessage, setNewLogMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
-  const [payments, setPayments] = useState<Payment[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'details' | 'timeline' | 'payments'>('details');
+
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineEvents, setTimelineEvents] = useState<Array<{ key: string; at: string }> | null>(null);
+
+  const [rejectHoldDialogOpen, setRejectHoldDialogOpen] = useState(false);
+  const [rejectHoldReason, setRejectHoldReason] = useState('');
+
+  const [rejectBookingDialogOpen, setRejectBookingDialogOpen] = useState(false);
+  const [rejectBookingReason, setRejectBookingReason] = useState('');
+
+  const [paymentDrawerOpen, setPaymentDrawerOpen] = useState(false);
+  const [paymentDrawerId, setPaymentDrawerId] = useState<string | null>(null);
 
   const loadPayments = useCallback(async (bookingId: string) => {
-    const data = await mockApi.get<Payment[]>('/payments');
-    const filtered = data
+    const res = await paymentsService.list();
+    const list = ((res as any)?.data ?? []) as any[];
+    const filtered = list
       .filter((p) => p.bookingId === bookingId)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    setPayments(filtered);
+    const normalized = filtered.map((p) => ({
+      ...p,
+      displayDate: p.paidAt ?? p.createdAt,
+      paymentType: p.paymentType ?? '',
+    }));
+    setPayments(normalized);
   }, []);
+
+  const openPayment = (paymentId: string) => {
+    setPaymentDrawerId(paymentId);
+    setPaymentDrawerOpen(true);
+  };
 
   useEffect(() => {
     if (open && booking?.id) {
@@ -47,58 +68,49 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
     }
   }, [open, booking?.id, loadPayments]);
 
-  if (!booking) return null;
+  useEffect(() => {
+    const loadTimeline = async () => {
+      if (!open || !booking?.id) return;
+      if (activeTab !== 'timeline') return;
 
-  const logs = communicationLogs.filter(log => log.bookingId === booking.id);
-
-  const handleAddLog = async () => {
-    if (!newLogMessage.trim()) return;
-    
-    // Simulate adding communication log
-    const newLog = {
-      id: `comm_${Date.now()}`,
-      bookingId: booking.id,
-      type: newLogType,
-      message: newLogMessage,
-      createdBy: 'current_user',
-      createdByName: 'You',
-      createdAt: new Date().toISOString(),
+      setTimelineLoading(true);
+      setTimelineEvents(null);
+      try {
+        const res = await bookingsService.timeline(booking.id);
+        const data = ((res as any)?.data ?? null) as any;
+        setTimelineEvents(Array.isArray(data?.events) ? data.events : []);
+      } catch {
+        toast({ title: 'Error', description: 'Failed to load timeline', variant: 'destructive' });
+        setTimelineEvents([]);
+      } finally {
+        setTimelineLoading(false);
+      }
     };
-    
-    communicationLogs.push(newLog);
-    setNewLogMessage('');
-    toast({ title: "Log Added", description: "Communication log has been added." });
-    onRefresh?.();
-  };
+    loadTimeline();
+  }, [activeTab, booking?.id, open]);
+
+  if (!booking) return null;
 
   const handleApprove = async () => {
     setLoading(true);
     try {
       if (booking.status === 'HOLD_REQUESTED' && (role === 'admin' || role === 'manager')) {
-        await mockApi.patch('/bookings', booking.id, {
-          status: 'APPROVED',
+        await bookingsService.approveHold(booking.id, {
+          status: 'HOLD_CONFIRMED',
           approvedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-        await mockApi.patch('/units', booking.unitId, {
-          status: 'HOLD',
-          updatedAt: new Date().toISOString(),
-        });
-        toast({ title: "Approved", description: "Hold request approved. Unit is now on HOLD." });
+        } as any);
+        toast({ title: "Approved", description: "Hold request approved." });
         onRefresh?.();
         onOpenChange(false);
         return;
       }
 
-      await mockApi.patch('/bookings', booking.id, { 
+      await bookingsService.approve(booking.id, {
         status: role === 'manager' ? 'BOOKING_CONFIRMED' : 'BOOKED',
-        ...(role === 'manager' && { 
-          managerApprovedAt: new Date().toISOString(),
-          managerId: 'u_mgr_1',
-          managerName: 'Current Manager'
-        })
-      });
-      toast({ title: "Approved", description: role === 'manager' ? "Booking has been approved" : "Payment recorded successfully" });
+        approvedAt: new Date().toISOString(),
+      } as any);
+
+      toast({ title: "Approved", description: role === 'manager' ? "Booking has been approved" : "Booking marked as booked" });
       onRefresh?.();
       onOpenChange(false);
     } catch (error) {
@@ -109,38 +121,24 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
   };
 
   const handleReject = async () => {
-    setLoading(true);
-    try {
-      if (booking.status === 'HOLD_REQUESTED' && (role === 'admin' || role === 'manager')) {
-        await mockApi.patch('/bookings', booking.id, {
-          status: 'REJECTED',
-          rejectedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-        await mockApi.patch('/units', booking.unitId, { status: 'AVAILABLE', updatedAt: new Date().toISOString() });
-        toast({ title: "Rejected", description: "Hold request rejected. Unit remains AVAILABLE." });
-        onRefresh?.();
-        onOpenChange(false);
-        return;
-      }
+    if (role !== 'admin' && role !== 'manager') return;
 
-      await mockApi.patch('/bookings', booking.id, { status: 'CANCELLED' });
-      toast({ title: "Rejected", description: "Booking has been rejected" });
-      onRefresh?.();
-      onOpenChange(false);
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to update booking", variant: "destructive" });
-    } finally {
-      setLoading(false);
+    if (booking.status === 'HOLD_REQUESTED') {
+      setRejectHoldDialogOpen(true);
+      return;
+    }
+
+    if (booking.status === 'BOOKING_PENDING_APPROVAL') {
+      setRejectBookingDialogOpen(true);
     }
   };
 
   const handleDownloadReceipt = () => {
-    mockApi.downloadReceipt(booking.status === 'BOOKED' ? 'booking' : 'token', booking);
+    toast({ title: 'Disabled', description: 'Receipt download is disabled until a real backend receipt API exists.', variant: 'destructive' });
   };
 
   const handleDownloadPaymentReceipt = (payment: Payment) => {
-    mockApi.downloadReceipt('payment', payment);
+    toast({ title: 'Disabled', description: 'Receipt download is disabled until a real backend receipt API exists.', variant: 'destructive' });
   };
 
 
@@ -151,37 +149,92 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
     }
     setLoading(true);
     try {
-      await mockApi.patch('/bookings', booking.id, {
-        status: 'CANCELLED',
-        cancelledAt: new Date().toISOString(),
-        cancellationReason: cancelReason,
-        updatedAt: new Date().toISOString(),
-      });
-      await mockApi.patch('/units', booking.unitId, { status: 'AVAILABLE', updatedAt: new Date().toISOString() });
-      toast({ title: 'Cancelled', description: 'Your booking has been cancelled.' });
+      await bookingsService.updateStatus(booking.id, {
+        status: 'BOOKING_PENDING_APPROVAL',
+        cancellationReason: cancelReason.trim(),
+        managerNotes: `CANCEL_REQUESTED|${booking.status}`,
+      } as any);
+      toast({ title: 'Requested', description: 'Cancellation request sent for approval.' });
       setCancelDialogOpen(false);
       setCancelReason('');
       onRefresh?.();
       onOpenChange(false);
     } catch (error) {
-      toast({ title: 'Error', description: 'Failed to cancel booking', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Failed to request cancellation', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
-  const getLogIcon = (type: CommunicationLog['type']) => {
-    switch (type) {
-      case 'Call': return <Phone className="w-4 h-4" />;
-      case 'WhatsApp': return <MessageSquare className="w-4 h-4" />;
-      case 'Email': return <Mail className="w-4 h-4" />;
-      case 'Meeting': return <Calendar className="w-4 h-4" />;
-      default: return <MessageSquare className="w-4 h-4" />;
+  const getCancelRequestMeta = () => {
+    const raw = typeof (booking as any)?.managerNotes === 'string' ? String((booking as any).managerNotes) : '';
+    if (!raw.startsWith('CANCEL_REQUESTED|')) return null;
+    const originalStatus = raw.split('|')[1] || '';
+    return { originalStatus };
+  };
+
+  const cancelRequestMeta = getCancelRequestMeta();
+
+  const handleApproveCancelRequest = async () => {
+    if (!cancelRequestMeta) return;
+    const reason = typeof (booking as any)?.cancellationReason === 'string' ? String((booking as any).cancellationReason) : '';
+    if (!reason.trim()) {
+      toast({ title: 'Required', description: 'Cancellation reason is missing', variant: 'destructive' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await bookingsService.cancel(booking.id, {
+        status: 'CANCELLED',
+        cancelledAt: new Date().toISOString(),
+        cancellationReason: reason.trim(),
+      } as any);
+      toast({ title: 'Cancelled', description: 'Cancellation request approved.' });
+      onRefresh?.();
+      onOpenChange(false);
+    } catch {
+      toast({ title: 'Error', description: 'Failed to approve cancellation', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRejectCancelRequest = async () => {
+    if (!cancelRequestMeta) return;
+    if (!cancelRequestMeta.originalStatus) {
+      toast({ title: 'Error', description: 'Original status missing', variant: 'destructive' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await bookingsService.updateStatus(booking.id, {
+        status: cancelRequestMeta.originalStatus as any,
+        cancellationReason: undefined,
+        managerNotes: undefined,
+      } as any);
+      toast({ title: 'Rejected', description: 'Cancellation request rejected.' });
+      onRefresh?.();
+      onOpenChange(false);
+    } catch {
+      toast({ title: 'Error', description: 'Failed to reject cancellation request', variant: 'destructive' });
+    } finally {
+      setLoading(false);
     }
   };
 
   const canApprove = (role === 'manager' || role === 'admin') && booking.status === 'HOLD_REQUESTED';
-  const canCancel = role === 'customer' && !['BOOKED', 'CANCELLED', 'REFUNDED'].includes(booking.status);
+  const canRejectHold = (role === 'manager' || role === 'admin') && booking.status === 'HOLD_REQUESTED';
+  const canRejectBooking = (role === 'manager' || role === 'admin') && booking.status === 'BOOKING_PENDING_APPROVAL';
+  const canApproveBooking = (role === 'manager' || role === 'admin') && booking.status === 'BOOKING_PENDING_APPROVAL';
+  const canCancel =
+    role === 'customer' &&
+    !['CANCELLED', 'REFUNDED'].includes(booking.status) &&
+    !cancelRequestMeta;
+
+  const canApproveCancelRequest =
+    (role === 'manager' || role === 'admin') && booking.status === 'BOOKING_PENDING_APPROVAL' && Boolean(cancelRequestMeta);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -191,12 +244,11 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
           <SheetDescription>Booking ID: {booking.id}</SheetDescription>
         </SheetHeader>
 
-        <Tabs defaultValue="details" className="flex-1 flex flex-col overflow-hidden">
-          <TabsList className="grid w-full grid-cols-4">
+        <Tabs defaultValue="details" className="flex-1 flex flex-col overflow-hidden" onValueChange={(v) => setActiveTab(v as any)}>
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="timeline">Timeline</TabsTrigger>
             <TabsTrigger value="payments">Payments ({payments.length})</TabsTrigger>
-            <TabsTrigger value="logs">Logs ({logs.length})</TabsTrigger>
           </TabsList>
 
           <ScrollArea className="flex-1">
@@ -282,7 +334,27 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
             </TabsContent>
 
             <TabsContent value="timeline" className="mt-4">
-              <BookingTimeline status={booking.status} orientation="vertical" />
+              {timelineLoading ? (
+                <div className="p-6 border rounded-lg text-center text-sm text-muted-foreground">Loading timeline...</div>
+              ) : !timelineEvents ? (
+                <div className="p-6 border rounded-lg text-center text-sm text-muted-foreground">Select a booking to view timeline.</div>
+              ) : timelineEvents.length === 0 ? (
+                <div className="p-6 border rounded-lg text-center text-sm text-muted-foreground">No timeline events yet.</div>
+              ) : (
+                <div className="space-y-3">
+                  {timelineEvents
+                    .slice()
+                    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+                    .map((e, idx) => (
+                      <div key={`${e.key}-${e.at}-${idx}`} className="p-4 border rounded-lg">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium text-sm">{String(e.key).replace(/_/g, ' ')}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(e.at).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="payments" className="mt-4 space-y-4">
@@ -293,105 +365,50 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
               ) : (
                 <div className="space-y-3">
                   {payments.map((p) => (
-                    <div key={p.id} className="p-4 border rounded-lg">
+                    <div
+                      key={p.id}
+                      className="p-4 border rounded-lg cursor-pointer"
+                      onClick={() => (role === 'admin' || role === 'manager' ? openPayment(p.id) : undefined)}
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs">{p.type}</Badge>
-                            <Badge variant={p.status === 'Received' ? 'default' : p.status === 'Refunded' ? 'secondary' : 'outline'} className="text-xs">
+                            <Badge variant="outline" className="text-xs">{p.paymentType}</Badge>
+                            <Badge
+                              variant={
+                                p.status === 'Received'
+                                  ? 'default'
+                                  : p.status === 'Refunded'
+                                    ? 'secondary'
+                                    : 'outline'
+                              }
+                              className="text-xs"
+                            >
                               {p.status}
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground mt-1">
-                            {new Date(p.date).toLocaleString()} • {p.method}
+                            {p.displayDate ? new Date(p.displayDate).toLocaleDateString() : ''}
                           </p>
-                          {p.receiptNo && (
-                            <p className="text-xs text-muted-foreground mt-1">Receipt: {p.receiptNo}</p>
-                          )}
                         </div>
 
-                        <div className="text-right">
-                          <p className="font-semibold text-primary">{formatPrice(p.amount)}</p>
+                        <div className="flex items-center gap-2">
                           <Button
                             size="sm"
                             variant="outline"
-                            className="mt-2"
-                            onClick={() => handleDownloadPaymentReceipt(p)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownloadPaymentReceipt(p);
+                            }}
                           >
-                            <Download className="w-4 h-4 mr-2" /> Receipt
+                            <Download className="w-4 h-4 mr-1" /> Receipt
                           </Button>
                         </div>
                       </div>
-
-                      {p.notes && (
-                        <div className="mt-3 text-sm">
-                          <p className="text-muted-foreground">Notes</p>
-                          <p className="mt-1">{p.notes}</p>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
               )}
-            </TabsContent>
-
-            <TabsContent value="logs" className="mt-4 space-y-4">
-              {(role === 'agent' || role === 'manager') && (
-                <div className="space-y-3 p-4 border rounded-lg">
-                  <div className="flex gap-2">
-                    <Select value={newLogType} onValueChange={(v) => setNewLogType(v as CommunicationLog['type'])}>
-                      <SelectTrigger className="w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Call">Call</SelectItem>
-                        <SelectItem value="WhatsApp">WhatsApp</SelectItem>
-                        <SelectItem value="Email">Email</SelectItem>
-                        <SelectItem value="Meeting">Meeting</SelectItem>
-                        <SelectItem value="Note">Note</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Textarea 
-                    placeholder="Add communication notes..." 
-                    value={newLogMessage}
-                    onChange={(e) => setNewLogMessage(e.target.value)}
-                  />
-                  <Button size="sm" onClick={handleAddLog} disabled={!newLogMessage.trim()}>
-                    <Send className="w-4 h-4 mr-2" /> Add Log
-                  </Button>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                {logs.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8">No communication logs yet</p>
-                ) : (
-                  logs.map((log) => (
-                    <div key={log.id} className="flex gap-3 p-3 border rounded-lg">
-                      <div className={cn(
-                        "w-8 h-8 rounded-full flex items-center justify-center",
-                        log.type === 'Call' ? 'bg-primary/10 text-primary' :
-                        log.type === 'WhatsApp' ? 'bg-success/10 text-success' :
-                        log.type === 'Email' ? 'bg-info/10 text-info' :
-                        'bg-muted text-muted-foreground'
-                      )}>
-                        {getLogIcon(log.type)}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge variant="outline" className="text-xs">{log.type}</Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(log.createdAt).toLocaleString()}
-                          </span>
-                        </div>
-                        <p className="text-sm">{log.message}</p>
-                        <p className="text-xs text-muted-foreground mt-1">by {log.createdByName}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
             </TabsContent>
           </ScrollArea>
         </Tabs>
@@ -408,21 +425,49 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
                   onClick={() => setCancelDialogOpen(true)}
                   disabled={loading}
                 >
-                  <X className="w-4 h-4 mr-2" /> Cancel
+                  <X className="w-4 h-4 mr-2" /> Request Cancel
                 </Button>
               )}
             </>
           )}
           {canApprove && (
             <>
-              <Button variant="destructive" onClick={handleReject} disabled={loading}>
-                <X className="w-4 h-4 mr-2" /> Reject
-              </Button>
+              {canRejectHold && (
+                <Button variant="destructive" onClick={handleReject} disabled={loading}>
+                  <X className="w-4 h-4 mr-2" /> Reject Hold
+                </Button>
+              )}
               <Button onClick={handleApprove} disabled={loading}>
                 <Check className="w-4 h-4 mr-2" /> 
                 Approve
               </Button>
             </>
+          )}
+
+          {canApproveCancelRequest ? (
+            <>
+              <Button variant="destructive" onClick={handleRejectCancelRequest} disabled={loading}>
+                <X className="w-4 h-4 mr-2" /> Reject Cancel
+              </Button>
+              <Button onClick={handleApproveCancelRequest} disabled={loading}>
+                <Check className="w-4 h-4 mr-2" /> Approve Cancel
+              </Button>
+            </>
+          ) : (
+            (canRejectBooking || canApproveBooking) && (
+              <>
+                {canRejectBooking && (
+                  <Button variant="destructive" onClick={handleReject} disabled={loading}>
+                    <X className="w-4 h-4 mr-2" /> Reject Booking
+                  </Button>
+                )}
+                {canApproveBooking && (
+                  <Button onClick={handleApprove} disabled={loading}>
+                    <Check className="w-4 h-4 mr-2" /> Approve Booking
+                  </Button>
+                )}
+              </>
+            )
           )}
         </div>
 
@@ -430,9 +475,9 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
         <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Cancel Booking</DialogTitle>
+              <DialogTitle>Request Cancellation</DialogTitle>
               <DialogDescription>
-                Tell us why you want to cancel. This will release the unit.
+                Tell us why you want to cancel. This will be sent for approval.
               </DialogDescription>
             </DialogHeader>
 
@@ -451,11 +496,129 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
                 Back
               </Button>
               <Button variant="destructive" onClick={handleCancelBooking} disabled={loading}>
-                {loading ? 'Cancelling...' : 'Confirm Cancel'}
+                {loading ? 'Requesting...' : 'Confirm Request'}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <Dialog open={rejectHoldDialogOpen} onOpenChange={setRejectHoldDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Reject Hold Request</DialogTitle>
+              <DialogDescription>
+                Provide a reason. This will cancel the hold request.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-2">
+              <Label>Reason *</Label>
+              <Textarea
+                placeholder="Enter rejection reason"
+                value={rejectHoldReason}
+                onChange={(e) => setRejectHoldReason(e.target.value)}
+                rows={4}
+              />
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRejectHoldDialogOpen(false)} disabled={loading}>
+                Back
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (!rejectHoldReason.trim()) {
+                    toast({ title: 'Required', description: 'Rejection reason is required', variant: 'destructive' });
+                    return;
+                  }
+                  setLoading(true);
+                  try {
+                    await bookingsService.rejectHold(booking.id, {
+                      status: 'CANCELLED',
+                      cancelledAt: new Date().toISOString(),
+                      cancellationReason: rejectHoldReason.trim(),
+                    } as any);
+                    toast({ title: 'Rejected', description: 'Hold request rejected.' });
+                    setRejectHoldDialogOpen(false);
+                    setRejectHoldReason('');
+                    onRefresh?.();
+                    onOpenChange(false);
+                  } catch {
+                    toast({ title: 'Error', description: 'Failed to reject hold request', variant: 'destructive' });
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+              >
+                Confirm Reject
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={rejectBookingDialogOpen} onOpenChange={setRejectBookingDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Reject Booking</DialogTitle>
+              <DialogDescription>
+                Confirm rejecting this booking request.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-2">
+              <Label>Reason (optional)</Label>
+              <Textarea
+                placeholder="Enter rejection reason (optional)"
+                value={rejectBookingReason}
+                onChange={(e) => setRejectBookingReason(e.target.value)}
+                rows={4}
+              />
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRejectBookingDialogOpen(false)} disabled={loading}>
+                Back
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  setLoading(true);
+                  try {
+                    await bookingsService.reject(booking.id, {
+                      status: 'CANCELLED',
+                      rejectedAt: new Date().toISOString(),
+                      cancellationReason: rejectBookingReason.trim() || undefined,
+                    } as any);
+                    toast({ title: 'Rejected', description: 'Booking rejected.' });
+                    setRejectBookingDialogOpen(false);
+                    setRejectBookingReason('');
+                    onRefresh?.();
+                    onOpenChange(false);
+                  } catch {
+                    toast({ title: 'Error', description: 'Failed to reject booking', variant: 'destructive' });
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+              >
+                Confirm Reject
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <PaymentDetailDrawer
+          open={paymentDrawerOpen}
+          onOpenChange={setPaymentDrawerOpen}
+          paymentId={paymentDrawerId}
+          role={role}
+          onUpdated={async () => {
+            if (booking?.id) await loadPayments(booking.id);
+          }}
+        />
       </SheetContent>
     </Sheet>
   );

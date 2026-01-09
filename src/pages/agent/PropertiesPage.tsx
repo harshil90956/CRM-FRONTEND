@@ -8,8 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Project, projects as defaultProjects, Unit, units as defaultUnits } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
+import { Project, Unit } from "@/data/mockData";
+import { httpClient } from "@/api";
 import { formatPrice, getStatusStyle, getUnitArea, getUnitDisplayType, getUnitLocation, isCommercial, isIndustrial, isResidential } from "@/lib/unitHelpers";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
@@ -19,21 +19,21 @@ export const AgentPropertiesPage = () => {
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("all");
 
-  const [projects, setProjects] = useState<Project[]>(defaultProjects);
-  const [units, setUnits] = useState<Unit[]>(defaultUnits);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
   const [unitsDialogOpen, setUnitsDialogOpen] = useState(false);
   const [unitDialogOpen, setUnitDialogOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
 
   const loadData = async () => {
-    const [projectsData, unitsData] = await Promise.all([
-      mockApi.get<Project[]>('/projects'),
-      mockApi.get<Unit[]>('/units'),
+    const [projectsRes, unitsRes] = await Promise.all([
+      httpClient.get<Project[]>('/projects'),
+      httpClient.get<Unit[]>('/units'),
     ]);
 
-    setProjects(projectsData);
-    setUnits(unitsData);
+    setProjects((((projectsRes as any)?.data ?? []) as Project[]));
+    setUnits((((unitsRes as any)?.data ?? []) as Unit[]));
   };
 
   useEffect(() => {
