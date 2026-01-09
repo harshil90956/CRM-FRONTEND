@@ -15,6 +15,8 @@ import { format } from "date-fns";
 interface LeadCardProps {
   lead: LeadDb & {
     assignedTo?: string | null;
+    project?: { name: string } | null;
+    assignedToUser?: { name: string } | null;
   };
   selected: boolean;
   onSelect: () => void;
@@ -98,6 +100,7 @@ export const LeadCard = ({
                 View Details
               </DropdownMenuItem>
               <DropdownMenuItem
+                disabled={!onEdit}
                 onClick={() => {
                   onEdit?.();
                 }}
@@ -113,6 +116,7 @@ export const LeadCard = ({
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive"
+                disabled={!onDelete}
                 onClick={() => {
                   onDelete?.();
                 }}
@@ -137,7 +141,7 @@ export const LeadCard = ({
         {isLarge && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Building className="w-3 h-3" />
-            <span>{lead.projectId || 'N/A'}</span>
+            <span>{(lead.project as any)?.name || lead.projectId || 'N/A'}</span>
           </div>
         )}
       </div>
@@ -166,10 +170,10 @@ export const LeadCard = ({
             <span className="text-muted-foreground">Value:</span>
             <span className="font-medium">{lead.budget || 'N/A'}</span>
           </div>
-          {lead.assignedTo && (
+          {(lead.assignedTo || (lead as any).assignedToUser) && (
             <div className="flex items-center justify-between text-sm mt-1">
               <span className="text-muted-foreground">Assigned:</span>
-              <span className="font-medium">{lead.assignedTo}</span>
+              <span className="font-medium">{lead.assignedTo || (lead as any).assignedToUser?.name}</span>
             </div>
           )}
         </div>
