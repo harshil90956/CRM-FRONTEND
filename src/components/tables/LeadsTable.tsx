@@ -1,6 +1,5 @@
 import { motion } from "framer-motion";
 import { MoreHorizontal, Eye, Edit, Trash2, Phone, Mail } from "lucide-react";
-import { leads } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,17 +28,19 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Fragment } from "react";
+import { leadsService } from "@/api";
+import type { LeadDb } from "@/api/services/leads.service";
 
 const getStatusStyle = (status: string) => {
   const styles: Record<string, string> = {
-    New: "status-new",
-    Contacted: "status-contacted",
-    Qualified: "status-qualified",
-    Negotiation: "status-booked",
-    Won: "status-available",
-    Lost: "status-lost",
+    NEW: "status-new",
+    CONTACTED: "status-contacted",
+    QUALIFIED: "status-qualified",
+    NEGOTIATION: "status-booked",
+    CONVERTED: "status-available",
+    LOST: "status-lost",
   };
   return styles[status] || "";
 };
@@ -54,19 +55,37 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedLead, setSelectedLead] = useState<any>(null);
+  const [selectedLead, setSelectedLead] = useState<LeadDb | null>(null);
   const [editForm, setEditForm] = useState({
     name: '',
     phone: '',
     email: '',
     budget: '',
-    project: '',
+    projectId: '',
     status: '',
   });
   
   // State management for leads - this is the single source of truth
-  const [leadsData, setLeadsData] = useState([...leads]);
+  const [leadsData, setLeadsData] = useState<LeadDb[]>([]);
   const displayLeads = limit ? leadsData.slice(0, limit) : leadsData;
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await leadsService.list();
+        if (!res.success) {
+          throw new Error(res.message || 'Failed to load leads');
+        }
+        setLeadsData(res.data || []);
+      } catch {
+        toast({
+          title: 'Failed to load leads',
+          description: 'Please try again.',
+          variant: 'destructive',
+        });
+      }
+    })();
+  }, [toast]);
 
   // Handler functions
   const handleViewDetails = (lead: any) => {
@@ -87,7 +106,7 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
       phone: leadToEdit.phone,
       email: leadToEdit.email || '',
       budget: leadToEdit.budget,
-      project: leadToEdit.project,
+      projectId: leadToEdit.projectId || '',
       status: leadToEdit.status,
     });
     setEditDialogOpen(true);
@@ -125,35 +144,20 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
   };
 
   const confirmDelete = () => {
-    // Remove the lead from the state
-    setLeadsData(prevLeads => 
-      prevLeads.filter(lead => lead.id !== selectedLead.id)
-    );
-    
     toast({
-      title: "Lead Deleted",
-      description: `${selectedLead.name} has been removed from your assigned leads.`,
+      title: "Delete is not implemented",
+      description: "Backend delete endpoint for leads is not implemented yet.",
+      variant: "destructive",
     });
     setDeleteDialogOpen(false);
     setSelectedLead(null);
   };
 
   const saveEdit = () => {
-    // Update the lead in the state
-    setLeadsData(prevLeads => 
-      prevLeads.map(lead => 
-        lead.id === selectedLead.id 
-          ? { ...lead, ...editForm }
-          : lead
-      )
-    );
-    
-    // Update selectedLead to reflect changes
-    setSelectedLead({ ...selectedLead, ...editForm });
-    
     toast({
-      title: "Lead Updated",
-      description: `${editForm.name}'s information has been updated.`,
+      title: "Edit is not implemented",
+      description: "Backend update endpoint for leads is not implemented yet.",
+      variant: "destructive",
     });
     setEditDialogOpen(false);
   };
@@ -196,14 +200,14 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{lead.project}</TableCell>
+                <TableCell className="text-muted-foreground">{lead.projectId || 'N/A'}</TableCell>
                 <TableCell className="text-muted-foreground">{lead.budget}</TableCell>
                 <TableCell>
                   <span className={cn("status-badge", getStatusStyle(lead.status))}>
                     {lead.status}
                   </span>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{lead.assignedTo}</TableCell>
+                <TableCell className="text-muted-foreground">{lead.assignedToId || 'Unassigned'}</TableCell>
                 <TableCell>
                   <Badge variant="outline" className="font-normal">
                     {lead.source}
@@ -278,7 +282,7 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
                 </div>
                 <div>
                   <Label className="text-sm text-muted-foreground">Project</Label>
-                  <p className="font-medium">{selectedLead.project}</p>
+                  <p className="font-medium">{selectedLead.projectId || 'Not specified'}</p>
                 </div>
                 <div>
                   <Label className="text-sm text-muted-foreground">Status</Label>
@@ -288,7 +292,7 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
                 </div>
                 <div>
                   <Label className="text-sm text-muted-foreground">Assigned To</Label>
-                  <p className="font-medium">{selectedLead.assignedTo}</p>
+                  <p className="font-medium">{selectedLead.assignedToId || 'Unassigned'}</p>
                 </div>
                 <div>
                   <Label className="text-sm text-muted-foreground">Source</Label>
@@ -350,8 +354,8 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
                 <Label htmlFor="project">Project</Label>
                 <Input
                   id="project"
-                  value={editForm.project}
-                  onChange={(e) => setEditForm({ ...editForm, project: e.target.value })}
+                  value={editForm.projectId}
+                  onChange={(e) => setEditForm({ ...editForm, projectId: e.target.value })}
                 />
               </div>
               <div>

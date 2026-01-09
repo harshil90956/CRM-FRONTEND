@@ -32,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { mockApi } from "@/lib/mockApi";
 import { useAppStore } from "@/stores/appStore";
+import { leadsService } from "@/api";
 
 export const AdminDashboard = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
@@ -59,8 +60,19 @@ export const AdminDashboard = () => {
   const loadMetrics = async () => {
     setIsLoading(true);
     try {
-      const data = await mockApi.getDashboardMetrics();
-      setMetrics(data);
+      const [data, leadStatsRes] = await Promise.all([
+        mockApi.getDashboardMetrics(),
+        leadsService.getLeadStats(),
+      ]);
+
+      if (leadStatsRes.success) {
+        setMetrics({
+          ...data,
+          totalLeads: leadStatsRes.data?.total ?? data?.totalLeads,
+        });
+      } else {
+        setMetrics(data);
+      }
     } catch (error) {
       console.error('Failed to load metrics:', error);
     } finally {

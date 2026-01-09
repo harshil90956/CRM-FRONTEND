@@ -43,18 +43,38 @@ const toJsonOrText = async (res: Response): Promise<unknown> => {
 
 const getAccessToken = (): string | null => {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('crm_accessToken');
+
+  const keys = ['crm_accessToken', 'accessToken', 'token'];
+
+  for (const k of keys) {
+    const v = localStorage.getItem(k);
+    if (v) return v;
+  }
+
+  for (const k of keys) {
+    const v = sessionStorage.getItem(k);
+    if (v) return v;
+  }
+
+  return null;
 };
 
 async function requestRaw<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {
   const token = getAccessToken();
 
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token.trim()}`;
+  }
+  if (body !== undefined) {
+    headers['content-type'] = 'application/json';
+  }
+
   const res = await fetch(buildUrl(path), {
     method,
-    headers: {
-      'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
