@@ -114,7 +114,7 @@ export const LeadsPage = () => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
-  const [assignedFilter, setAssignedFilter] = useState("all");
+  const [assignedFilter, setAssignedFilter] = useState("unassigned");
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -201,7 +201,9 @@ export const LeadsPage = () => {
       const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
       const matchesPriority = priorityFilter === "all" || lead.priority === priorityFilter;
       const matchesSource = sourceFilter === "all" || lead.source === sourceFilter;
-      const matchesAssigned = assignedFilter === "all" || lead.assignedToId === assignedFilter;
+      const matchesAssigned =
+        assignedFilter === "all" ||
+        (assignedFilter === "unassigned" ? !lead.assignedToId : lead.assignedToId === assignedFilter);
       
       let matchesDate = true;
       if (dateRange.from && dateRange.to) {
@@ -443,7 +445,7 @@ export const LeadsPage = () => {
       email: lead.email,
       phone: lead.phone,
       project: lead.projectId || "",
-      budget: lead.budget || "",
+      budget: lead.budget != null ? String(lead.budget) : "",
       source: lead.source,
       priority: lead.priority || "Medium",
       notes: lead.notes || ""
@@ -463,6 +465,10 @@ export const LeadsPage = () => {
         email: editLead.email,
         phone: editLead.phone,
         notes: editLead.notes || undefined,
+        source: editLead.source || undefined,
+        priority: editLead.priority || undefined,
+        projectId: editLead.project || undefined,
+        budget: editLead.budget || undefined,
       });
       if (!res.success) {
         toast.error(res.message || 'Failed to update lead');
@@ -717,9 +723,9 @@ export const LeadsPage = () => {
                         <SelectItem value="Website">Website</SelectItem>
                         <SelectItem value="Facebook">Facebook</SelectItem>
                         <SelectItem value="Referral">Referral</SelectItem>
-                        <SelectItem value="Walk-in">Walk-in</SelectItem>
-                        <SelectItem value="Google Ads">Google Ads</SelectItem>
-                        <SelectItem value="Unit Interest">Unit Interest</SelectItem>
+                        <SelectItem value="Walk_in">Walk-in</SelectItem>
+                        <SelectItem value="Google_Ads">Google Ads</SelectItem>
+                        <SelectItem value="Unit_Interest">Unit Interest</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -904,9 +910,9 @@ export const LeadsPage = () => {
                     <SelectItem value="Website">Website</SelectItem>
                     <SelectItem value="Facebook">Facebook</SelectItem>
                     <SelectItem value="Referral">Referral</SelectItem>
-                    <SelectItem value="Walk-in">Walk-in</SelectItem>
-                    <SelectItem value="Google Ads">Google Ads</SelectItem>
-                    <SelectItem value="Unit Interest">Unit Interest</SelectItem>
+                    <SelectItem value="Walk_in">Walk-in</SelectItem>
+                    <SelectItem value="Google_Ads">Google Ads</SelectItem>
+                    <SelectItem value="Unit_Interest">Unit Interest</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

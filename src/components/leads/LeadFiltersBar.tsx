@@ -159,6 +159,7 @@ export const LeadFiltersBar = ({
           </SelectTrigger>
           <SelectContent className="bg-popover">
             <SelectItem value="all">All Agents</SelectItem>
+            <SelectItem value="unassigned">Unassigned</SelectItem>
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
             ))}

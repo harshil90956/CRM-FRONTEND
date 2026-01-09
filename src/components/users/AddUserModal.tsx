@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { mockApi } from "@/lib/mockApi";
+import { adminUsersService } from "@/api/services/admin-users.service";
 
 interface AddUserModalProps {
   open: boolean;
@@ -70,11 +70,21 @@ export const AddUserModal = ({ open, onOpenChange, onSuccess, editUser }: AddUse
         if (name !== editUser.name) changedFields.name = name;
         if (email !== editUser.email) changedFields.email = email;
         if (phone !== editUser.phone) changedFields.phone = phone;
-        if (role !== editUser.role) changedFields.role = role;
-        
+        const roleChanged = role !== editUser.role;
+
         // Only update if there are actual changes
         if (Object.keys(changedFields).length > 0) {
-          await mockApi.patch("/users", editUser.id, changedFields);
+          const res = await adminUsersService.update(editUser.id, changedFields);
+          if (!res.success) throw new Error(res.message || 'Failed to update user');
+        }
+
+        if (roleChanged) {
+          const newRole = role.toUpperCase() as 'MANAGER' | 'AGENT';
+          const resRole = await adminUsersService.updateRole(editUser.id, newRole);
+          if (!resRole.success) throw new Error(resRole.message || 'Failed to update role');
+        }
+
+        if (Object.keys(changedFields).length > 0 || roleChanged) {
           toast.success("User updated successfully");
         } else {
           toast.info("No changes made");
@@ -85,19 +95,11 @@ export const AddUserModal = ({ open, onOpenChange, onSuccess, editUser }: AddUse
           name,
           email,
           phone,
-          role,
-          isActive: true,
-          tenantId: "t_soundarya",
+          role: role.toUpperCase() as 'MANAGER' | 'AGENT',
         };
 
-        // Check if user already exists
-        const existingUsers = await mockApi.get<any[]>("/users");
-        if (existingUsers.some((u) => u.email === email)) {
-          toast.error("User with this email already exists");
-          setIsSubmitting(false);
-          return;
-        }
-        await mockApi.post("/users", payload);
+        const res = await adminUsersService.create(payload);
+        if (!res.success) throw new Error(res.message || 'Failed to create user');
         toast.success("User added successfully");
       }
 

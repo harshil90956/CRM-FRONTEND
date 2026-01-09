@@ -14,10 +14,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { agents, projects } from "@/data/mockData";
+import { managerTeamService } from "@/api/services/manager-team.service";
+import { projectsService } from "@/api/services/projects.service";
 import { toast } from "sonner";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+
+interface ProjectOption {
+  id: string;
+  name: string;
+}
 
 interface Agent {
   id: string;
@@ -43,10 +49,64 @@ export const ManagerTeamPage = () => {
   const [isEditAgentOpen, setIsEditAgentOpen] = useState(false);
   const [isAssignLeadsOpen, setIsAssignLeadsOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
-  const [newUser, setNewUser] = useState({ name: "", email: "", phone: "", role: "Agent", project: "" });
-  const [editAgent, setEditAgent] = useState({ name: "", email: "", phone: "", role: "Agent", project: "" });
+  const [newUser, setNewUser] = useState({ name: "", email: "", phone: "", role: "Agent", projectId: "" });
+  const [editAgent, setEditAgent] = useState({ name: "", email: "", phone: "", role: "Agent", projectId: "" });
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
-  const [agentsList, setAgentsList] = useState<Agent[]>(agents as Agent[]);
+  const [agentsList, setAgentsList] = useState<Agent[]>([]);
+  const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
+
+  const fetchProjects = async () => {
+    try {
+      const res = await projectsService.list();
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load projects');
+      }
+
+      const data = res.data || [];
+      const options = data
+        .filter((p) => !p.isClosed && String(p.status).toLowerCase() === 'active')
+        .map((p) => ({ id: p.id, name: p.name }));
+
+      setProjectOptions(options);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchTeam = async () => {
+    try {
+      const res = await managerTeamService.list();
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load team');
+      }
+
+      const data = res.data || [];
+      const mapped: Agent[] = data.map((u) => ({
+        id: u.id,
+        status: u.isActive ? 'Active' : 'Inactive',
+        totalLeads: 0,
+        conversions: 0,
+        revenue: '₹0',
+        name: u.name,
+        email: u.email,
+        phone: u.phone || '',
+        role: u.role === 'AGENT' ? 'Agent' : u.role,
+        project: u.project?.name || undefined,
+        tenantId: u.tenantId,
+        createdAt: u.createdAt,
+        managerId: u.managerId || undefined,
+      }));
+
+      setAgentsList(mapped);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    fetchProjects();
+    fetchTeam();
+  }, []);
 
   const filteredAgents = agentsList.filter(a => a.name.toLowerCase().includes(search.toLowerCase()) || a.email.toLowerCase().includes(search.toLowerCase()));
 
@@ -56,35 +116,48 @@ export const ManagerTeamPage = () => {
     setPage(1);
   }, [search, setPage]);
 
-  const handleAddUser = () => {
-    if (!newUser.name || !newUser.email) { toast.error("Please fill required fields"); return; }
-    const newAgent: Agent = { 
-      ...newUser, 
-      id: Date.now().toString(), 
-      status: 'Active', 
-      totalLeads: 0, 
-      conversions: 0, 
-      revenue: '₹0',
-      tenantId: 't_soundarya',
-      createdAt: new Date().toISOString()
-    };
-    setAgentsList([...agentsList, newAgent]);
-    toast.success(`${newUser.name} added as ${newUser.role}`);
-    setIsAddOpen(false);
-    setNewUser({ name: "", email: "", phone: "", role: "Agent", project: "" });
+  const handleAddUser = async () => {
+    if (!newUser.name || !newUser.email) {
+      toast.error("Please fill required fields");
+      return;
+    }
+
+    try {
+      const res = await managerTeamService.createAgent({
+        name: newUser.name,
+        email: newUser.email,
+        phone: newUser.phone,
+        projectId: newUser.projectId || undefined,
+      });
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to create agent');
+      }
+
+      toast.success(`${newUser.name} added as ${newUser.role}`);
+      setIsAddOpen(false);
+      setNewUser({ name: "", email: "", phone: "", role: "Agent", projectId: "" });
+      fetchTeam();
+    } catch (e) {
+      toast.error('Failed to create agent');
+    }
   };
 
   const handleToggleStatus = (agentId: string) => {
     const agent = agentsList.find(a => a.id === agentId);
-    if (agent) {
-      const newStatus: "Active" | "Inactive" = agent.status === 'Active' ? 'Inactive' : 'Active';
-      // Update the agent's status in the agents array
-      const updatedAgents = agentsList.map(a => 
-        a.id === agentId ? { ...a, status: newStatus } : a
-      );
-      setAgentsList(updatedAgents);
-      toast.success(`${agent.name} status changed to ${newStatus}`);
-    }
+    if (!agent) return;
+
+    const nextIsActive = agent.status !== 'Active';
+
+    managerTeamService
+      .updateStatus(agentId, nextIsActive)
+      .then((res) => {
+        if (!res.success) throw new Error(res.message || 'Failed to update status');
+        toast.success(`${agent.name} status changed to ${nextIsActive ? 'Active' : 'Inactive'}`);
+        fetchTeam();
+      })
+      .catch(() => {
+        toast.error('Failed to update status');
+      });
   };
 
   const handleViewProfile = (agent: Agent) => {
@@ -99,7 +172,7 @@ export const ManagerTeamPage = () => {
       email: agent.email,
       phone: agent.phone,
       role: agent.role,
-      project: agent.project || ""
+      projectId: ""
     });
     setIsEditAgentOpen(true);
   };
@@ -120,7 +193,7 @@ export const ManagerTeamPage = () => {
     toast.success(`${selectedAgent.name} updated successfully`);
     setIsEditAgentOpen(false);
     setSelectedAgent(null);
-    setEditAgent({ name: "", email: "", phone: "", role: "Agent", project: "" });
+    setEditAgent({ name: "", email: "", phone: "", role: "Agent", projectId: "" });
   };
 
   const handleConfirmAssignLeads = () => {
@@ -184,9 +257,9 @@ export const ManagerTeamPage = () => {
               <div>
                 <div className="flex items-center justify-between text-sm mb-1">
                   <span className="text-muted-foreground">Conversion Rate</span>
-                  <span className="font-medium">{((agent.conversions / agent.totalLeads) * 100).toFixed(0)}%</span>
+                  <span className="font-medium">{(agent.totalLeads ? ((agent.conversions / agent.totalLeads) * 100) : 0).toFixed(0)}%</span>
                 </div>
-                <Progress value={(agent.conversions / agent.totalLeads) * 100} className="h-2" />
+                <Progress value={agent.totalLeads ? (agent.conversions / agent.totalLeads) * 100 : 0} className="h-2" />
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Revenue</span>
@@ -228,9 +301,9 @@ export const ManagerTeamPage = () => {
             </div>
             <div className="space-y-2">
               <Label>Assign to Project</Label>
-              <Select value={newUser.project} onValueChange={(v) => setNewUser({...newUser, project: v})}>
+              <Select value={newUser.projectId} onValueChange={(v) => setNewUser({...newUser, projectId: v})}>
                 <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                <SelectContent>{projects.filter(p => p.status === 'Active').map(p => <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>)}</SelectContent>
+                <SelectContent>{projectOptions.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           </div>
@@ -333,9 +406,9 @@ export const ManagerTeamPage = () => {
               </div>
               <div className="space-y-2">
                 <Label>Assign to Project</Label>
-                <Select value={editAgent.project} onValueChange={(v) => setEditAgent({ ...editAgent, project: v })}>
+                <Select value={editAgent.projectId} onValueChange={(v) => setEditAgent({ ...editAgent, projectId: v })}>
                   <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                  <SelectContent>{projects.filter(p => p.status === 'Active').map(p => <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{projectOptions.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
