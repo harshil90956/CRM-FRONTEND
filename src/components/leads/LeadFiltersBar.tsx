@@ -69,12 +69,13 @@ const sourceOptions = [
   { value: "Website", label: "Website" },
   { value: "Facebook", label: "Facebook" },
   { value: "Referral", label: "Referral" },
-  { value: "Walk-in", label: "Walk-in" },
-  { value: "Google Ads", label: "Google Ads" },
+  { value: "Walk_in", label: "Walk-in" },
+  { value: "Google_Ads", label: "Google Ads" },
   { value: "Instagram", label: "Instagram" },
   { value: "LinkedIn", label: "LinkedIn" },
   { value: "Conference", label: "Conference" },
-  { value: "Cold Email", label: "Cold Email" },
+  { value: "Cold_Email", label: "Cold Email" },
+  { value: "Unit_Interest", label: "Unit Interest" },
 ];
 
 export const LeadFiltersBar = ({

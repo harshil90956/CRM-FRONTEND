@@ -13,7 +13,6 @@ import {
   Trash2,
   Phone,
   Mail,
-  Zap,
 } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { KPICard } from "@/components/cards/KPICard";
@@ -42,6 +41,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -62,8 +64,8 @@ import { LeadCalendarView } from "@/components/leads/LeadCalendarView";
 import { ViewMode } from "@/components/leads/ViewToggle";
 import { DatePreset } from "@/components/leads/DateRangePicker";
 import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
-import { leadsService, staffService } from "@/api";
-import type { LeadDb } from "@/api/services/leads.service";
+import { leadsService } from "@/api";
+import type { AllowedLeadActions, ManagerLead } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isWithinInterval } from "date-fns";
@@ -80,6 +82,25 @@ const statusOptions = [
   { value: "CONVERTED", label: "Converted" },
   { value: "LOST", label: "Lost" },
 ];
+
+const statusLabel = (status: string) => {
+  switch (status) {
+    case 'NEW':
+      return 'New';
+    case 'CONTACTED':
+      return 'Contacted';
+    case 'FOLLOWUP':
+      return 'Follow Up';
+    case 'NEGOTIATION':
+      return 'Negotiation';
+    case 'CONVERTED':
+      return 'Converted';
+    case 'LOST':
+      return 'Lost';
+    default:
+      return status;
+  }
+};
 
 const getStatusStyle = (status: string) => {
   const styles: Record<string, string> = {
@@ -104,11 +125,12 @@ const getPriorityStyle = (priority: string) => {
 };
 
 type StaffOption = { id: string; name: string };
+type ProjectOption = { id: string; name: string };
 
 export const ManagerLeadsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [isLoading, setIsLoading] = useState(true);
-  const [leads, setLeads] = useState<(LeadDb & { assignedTo?: string | null })[]>([]);
+  const [leads, setLeads] = useState<ManagerLead[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [newLeadStaffId, setNewLeadStaffId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -119,7 +141,7 @@ export const ManagerLeadsPage = () => {
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [selectedLead, setSelectedLead] = useState<(LeadDb & { assignedTo?: string | null }) | null>(null);
+  const [selectedLead, setSelectedLead] = useState<ManagerLead | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -128,11 +150,34 @@ export const ManagerLeadsPage = () => {
   const [importCsv, setImportCsv] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [statusList, setStatusList] = useState<string[]>([]);
+  const [allowedActionsById, setAllowedActionsById] = useState<Record<string, AllowedLeadActions>>({});
+
+  const getAllowedActionsForLead = (id: string): AllowedLeadActions => {
+    return (
+      allowedActionsById[id] || {
+        canEdit: true,
+        canAssign: true,
+        canChangeStatus: true,
+        canDelete: false,
+      }
+    );
+  };
+
+  const detailLead = useMemo(() => {
+    if (!selectedLead) return null;
+    return {
+      ...(selectedLead as any),
+      projectId: selectedLead.project?.name || null,
+      assignedTo: selectedLead.assignedTo?.name || null,
+    } as any;
+  }, [selectedLead]);
+
   const [newLead, setNewLead] = useState({
     name: "",
     email: "",
     phone: "",
-    project: "",
+    projectId: "",
     budget: "",
     source: "Website",
     priority: "Medium",
@@ -143,59 +188,80 @@ export const ManagerLeadsPage = () => {
     name: "",
     email: "",
     phone: "",
-    project: "",
+    projectId: "",
+    assignedToId: "",
     budget: "",
     source: "Website",
     priority: "Medium",
     notes: "",
   });
 
+  const projectOptions = useMemo<ProjectOption[]>(() => {
+    const map = new Map<string, string>();
+    leads.forEach((l) => {
+      if (l.project?.id && l.project?.name) {
+        map.set(l.project.id, l.project.name);
+      }
+    });
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [leads]);
+
   useEffect(() => {
     loadLeads();
   }, []);
 
   useEffect(() => {
+    void (async () => {
+      try {
+        const list = await leadsService.getManagerLeadStatuses();
+        setStatusList(list);
+      } catch {
+        setStatusList([]);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     (async () => {
       try {
-        const res = await staffService.list({ role: 'AGENT' });
-        if (!res.success) {
-          throw new Error(res.message || 'Failed to load staff');
-        }
-        const options = (res.data || [])
-          .filter((s) => (s as any).isActive !== false)
-          .map((s) => ({ id: s.id, name: s.name }));
+        const agents = await leadsService.getManagerAgents();
+        const options = (agents || []).map((s) => ({ id: s.id, name: s.name }));
         setStaffOptions(options);
         if (!newLeadStaffId && options[0]?.id) {
           setNewLeadStaffId(options[0].id);
         }
       } catch {
-        toast.error('Failed to load staff');
+        toast.error('Failed to load agents');
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const staffNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    staffOptions.forEach((s) => map.set(s.id, s.name));
-    return map;
-  }, [staffOptions]);
-
   const loadLeads = async () => {
     setIsLoading(true);
     try {
-      const res = await leadsService.list();
-      if (!res.success) {
-        throw new Error(res.message || "Failed to load leads");
+      const next = await leadsService.getManagerLeads();
+      setLeads(next);
+
+      try {
+        const actions = await Promise.allSettled(
+          next.map(async (l) => {
+            const a = await leadsService.getManagerAllowedActions(l.id);
+            return { id: l.id, actions: a };
+          }),
+        );
+
+        const map: Record<string, AllowedLeadActions> = {};
+        actions.forEach((r) => {
+          if (r.status !== 'fulfilled') return;
+          map[r.value.id] = r.value.actions;
+        });
+        setAllowedActionsById(map);
+      } catch {
+        setAllowedActionsById({});
       }
-      const data = (res.data || []).map((l) => {
-        const assignedName = staffNameById.get(l.assignedToId || '') || l.assignedToId || null;
-        return {
-          ...l,
-          assignedTo: assignedName,
-        };
-      });
-      setLeads(data);
     } catch (error) {
       toast.error("Failed to load leads");
     } finally {
@@ -208,11 +274,11 @@ export const ManagerLeadsPage = () => {
       const matchesSearch =
         lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         lead.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (lead.projectId || "").toLowerCase().includes(searchTerm.toLowerCase());
+        (lead.project?.name || "").toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
       const matchesPriority = priorityFilter === "all" || lead.priority === priorityFilter;
       const matchesSource = sourceFilter === "all" || lead.source === sourceFilter;
-      const matchesAssigned = assignedFilter === "all" || lead.assignedToId === assignedFilter;
+      const matchesAssigned = assignedFilter === "all" || lead.assignedTo?.id === assignedFilter;
 
       let matchesDate = true;
       if (dateRange.from && dateRange.to) {
@@ -254,12 +320,12 @@ export const ManagerLeadsPage = () => {
       lead.name,
       lead.email,
       lead.phone,
-      lead.projectId || "",
+      lead.project?.name || "",
       lead.status,
       lead.priority || "",
       lead.budget || "",
       lead.source,
-      lead.assignedTo || "",
+      lead.assignedTo?.name || "",
     ]);
     downloadCsv("manager-leads-export", headers, rows);
     toast.success("Leads exported successfully");
@@ -272,38 +338,108 @@ export const ManagerLeadsPage = () => {
       lead.name,
       lead.email,
       lead.phone,
-      lead.projectId || "",
+      lead.project?.name || "",
       lead.status,
       lead.source,
-      lead.assignedTo || "",
+      lead.assignedTo?.name || "",
     ]);
     downloadCsv(`leads-${status.toLowerCase()}`, headers, rows);
     toast.success(`${status} leads exported`);
   };
 
+  const handleAssignLead = async (leadId: string, agentId: string) => {
+    try {
+      await leadsService.assignManagerLead(leadId, agentId);
+      await loadLeads();
+      toast.success('Lead assigned successfully');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to assign lead';
+      toast.error(message || 'Failed to assign lead');
+    }
+  };
+
+  const handleStatusChange = async (leadId: string, newStatus: string) => {
+    try {
+      await leadsService.updateManagerLeadStatus(leadId, newStatus);
+      await loadLeads();
+      toast.success('Lead status updated successfully');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update lead status';
+      toast.error(message || 'Failed to update lead status');
+    }
+  };
+
   const handleBulkStatusChange = async (newStatus: string) => {
-    toast.error("Status change is not implemented on backend yet");
+    try {
+      const idsToUpdate = Array.from(selectedIds);
+      const results = await Promise.allSettled(
+        idsToUpdate.map(async (id) => {
+          await leadsService.updateManagerLeadStatus(id, newStatus);
+          return id;
+        }),
+      );
+
+      const succeededIds = results.filter((r) => r.status === 'fulfilled').map((r) => (r as any).value as string);
+      const failed = results.length - succeededIds.length;
+
+      if (succeededIds.length > 0) {
+        await loadLeads();
+        toast.success(`Updated status for ${succeededIds.length} lead(s)`);
+      }
+      if (failed > 0) {
+        const errMsg = (results.find((r) => r.status === 'rejected') as any)?.reason?.message;
+        toast.error(errMsg || `Failed to update status for ${failed} lead(s)`);
+      }
+    } finally {
+      setSelectedIds(new Set());
+    }
   };
 
   const handleBulkAssign = async (agentId: string) => {
     try {
       const idsToAssign = Array.from(selectedIds);
-      await Promise.all(idsToAssign.map((id) => leadsService.assign(id, agentId)));
+      const results = await Promise.allSettled(
+        idsToAssign.map(async (id) => {
+          await leadsService.assignManagerLead(id, agentId);
+          return id;
+        }),
+      );
 
-      setLeads((prev) => prev.filter((l) => !idsToAssign.includes(l.id)));
+      const succeededIds = results.filter((r) => r.status === 'fulfilled').map((r) => (r as any).value as string);
+      const failed = results.length - succeededIds.length;
+
+      if (succeededIds.length > 0) {
+        await loadLeads();
+        toast.success(`Assigned ${succeededIds.length} lead(s)`);
+      }
+      if (failed > 0) {
+        const errMsg = (results.find((r) => r.status === 'rejected') as any)?.reason?.message;
+        toast.error(errMsg || `Failed to assign ${failed} lead(s)`);
+      }
+
       setSelectedIds(new Set());
-      toast.success(`Assigned ${idsToAssign.length} leads`);
     } catch {
       toast.error("Failed to assign leads");
     }
   };
 
   const handleBulkDelete = async () => {
-    toast.error("Delete is not implemented on backend yet");
+    toast.error('Managers cannot delete leads');
   };
 
-  const handleEdit = (lead: any) => {
+  const handleEdit = (lead: ManagerLead) => {
     setSelectedLead(lead);
+    setEditLead({
+      name: lead.name,
+      email: lead.email,
+      phone: lead.phone,
+      projectId: lead.project?.id || '',
+      assignedToId: lead.assignedTo?.id || '',
+      budget: String(lead.budget ?? ''),
+      source: lead.source,
+      priority: (lead.priority || 'Medium') as any,
+      notes: lead.notes || '',
+    });
     setIsEditOpen(true);
   };
 
@@ -317,14 +453,14 @@ export const ManagerLeadsPage = () => {
     window.open(`mailto:${lead.email}`, '_blank');
   };
 
-  const handleDelete = (lead: any) => {
+  const handleDelete = (lead: ManagerLead) => {
+    toast.error('Managers cannot delete leads');
     setSelectedLead(lead);
-    setIsDeleteOpen(true);
   };
 
   const confirmDelete = async () => {
     if (!selectedLead) return;
-    toast.error("Delete is not implemented on backend yet");
+    toast.error('Managers cannot delete leads');
   };
 
   const handleUpdateLead = async () => {
@@ -332,43 +468,72 @@ export const ManagerLeadsPage = () => {
       toast.error("Please fill all required fields");
       return;
     }
-    toast.error("Edit is not implemented on backend yet");
-  };
 
-  const handleAddLead = async () => {
-    if (!newLead.name || !newLead.email || !newLead.phone) {
-      toast.error("Please fill all required fields");
-      return;
-    }
-
-    if (!newLeadStaffId) {
-      toast.error('Please select an agent');
+    const canEdit = getAllowedActionsForLead(selectedLead.id).canEdit;
+    if (!canEdit) {
+      toast.error('Editing this lead is not allowed');
       return;
     }
 
     try {
-      const res = await leadsService.create({
+      const nextAssignedToId = editLead.assignedToId || '';
+
+      await leadsService.updateManagerLead(selectedLead.id, {
+        name: editLead.name,
+        email: editLead.email,
+        phone: editLead.phone,
+        projectId: editLead.projectId ? editLead.projectId : undefined,
+        budget: editLead.budget ? editLead.budget : undefined,
+        source: editLead.source,
+        priority: editLead.priority ? editLead.priority : undefined,
+        notes: editLead.notes ? editLead.notes : undefined,
+        assignedToId: nextAssignedToId ? nextAssignedToId : undefined,
+      });
+      await loadLeads();
+      setIsEditOpen(false);
+      toast.success('Lead updated successfully');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update lead';
+      toast.error(message || 'Failed to update lead');
+    }
+  };
+
+  const canBulkAssign = useMemo(() => {
+    if (selectedIds.size === 0) return false;
+    return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canAssign);
+  }, [allowedActionsById, selectedIds]);
+
+  const canBulkChangeStatus = useMemo(() => {
+    if (selectedIds.size === 0) return false;
+    return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canChangeStatus);
+  }, [allowedActionsById, selectedIds]);
+
+  const handleAddLead = async () => {
+    if (!newLead.name || !newLead.email || !newLead.phone || !newLead.budget || !newLead.source) {
+      toast.error('Please fill all required fields');
+      return;
+    }
+
+    try {
+      await leadsService.createManagerLead({
         name: newLead.name,
         email: newLead.email,
         phone: newLead.phone,
-        status: 'NEW',
-        source: (newLead.source || 'Website') as any,
-        priority: (newLead.priority || undefined) as any,
-        budget: newLead.budget || '',
-        notes: newLead.notes || undefined,
-        assignedToId: newLeadStaffId,
-        tenantId: 'tenant_default',
+        projectId: newLead.projectId ? newLead.projectId : undefined,
+        budget: newLead.budget,
+        source: newLead.source,
+        priority: newLead.priority ? newLead.priority : undefined,
+        notes: newLead.notes ? newLead.notes : undefined,
+        assignedToId: newLeadStaffId ? newLeadStaffId : undefined,
       });
-      if (!res.success) {
-        toast.error(res.message || "Failed to create lead");
-        return;
-      }
+
       await loadLeads();
       setIsAddOpen(false);
-      setNewLead({ name: "", email: "", phone: "", project: "", budget: "", source: "Website", priority: "Medium", notes: "" });
-      toast.success("Lead added successfully");
-    } catch {
-      toast.error("Failed to create lead");
+      setNewLead({ name: "", email: "", phone: "", projectId: "", budget: "", source: "Website", priority: "Medium", notes: "" });
+      toast.success('Lead added successfully');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create lead';
+      toast.error(message || 'Failed to create lead');
     }
   };
 
@@ -438,20 +603,49 @@ export const ManagerLeadsPage = () => {
                 <div className="flex items-center gap-2 text-sm"><Phone className="w-3 h-3 text-muted-foreground" /><span className="text-muted-foreground">{lead.phone}</span></div>
               </div>
             </TableCell>
-            <TableCell><span className="text-sm">{lead.projectId || 'N/A'}</span></TableCell>
+            <TableCell><span className="text-sm">{lead.project?.name || 'N/A'}</span></TableCell>
             <TableCell><Badge variant="outline" className={cn("text-xs border", getStatusStyle(lead.status))}>{lead.status.charAt(0) + lead.status.slice(1).toLowerCase()}</Badge></TableCell>
             <TableCell><Badge variant="secondary" className={cn("text-xs", getPriorityStyle(lead.priority || ''))}>{lead.priority}</Badge></TableCell>
             <TableCell><Badge variant="outline" className="text-xs font-normal">{lead.source}</Badge></TableCell>
-            <TableCell><span className="text-sm">{lead.assignedTo || 'Unassigned'}</span></TableCell>
+            <TableCell><span className="text-sm">{lead.assignedTo?.name || 'Unassigned'}</span></TableCell>
             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="bg-popover">
                   <DropdownMenuItem onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}><Eye className="w-4 h-4 mr-2" /> View</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleEdit(lead)}><Edit className="w-4 h-4 mr-2" /> Edit</DropdownMenuItem>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger disabled={!getAllowedActionsForLead(lead.id).canAssign || staffOptions.length === 0}>
+                      <Users className="w-4 h-4 mr-2" /> Assign to
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="bg-popover">
+                      {staffOptions.map((a) => (
+                        <DropdownMenuItem key={a.id} onClick={() => handleAssignLead(lead.id, a.id)}>
+                          {a.name}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger disabled={!getAllowedActionsForLead(lead.id).canChangeStatus}>
+                      <ArrowUpDown className="w-4 h-4 mr-2" /> Change status
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="bg-popover">
+                      {(statusList.length ? statusList : statusOptions.slice(1).map((s) => s.value)).map((s) => (
+                        <DropdownMenuItem key={s} onClick={() => handleStatusChange(lead.id, s)}>
+                          {statusLabel(s)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuItem
+                    disabled={!getAllowedActionsForLead(lead.id).canEdit}
+                    onClick={() => handleEdit(lead)}
+                  >
+                    <Edit className="w-4 h-4 mr-2" /> Edit
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleCall(lead)}><Phone className="w-4 h-4 mr-2" /> Call</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleEmail(lead)}><Mail className="w-4 h-4 mr-2" /> Email</DropdownMenuItem>
-                  <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(lead)}><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>
+                  <DropdownMenuItem className="text-destructive" disabled><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </TableCell>
@@ -464,7 +658,18 @@ export const ManagerLeadsPage = () => {
   const renderGridView = (variant: 'small' | 'large') => (
     <div className={cn("grid gap-4", variant === 'small' ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1 md:grid-cols-2")}>
       {paginatedLeads.map((lead) => (
-        <LeadCard key={lead.id} lead={lead} selected={selectedIds.has(lead.id)} onSelect={() => toggleSelect(lead.id)} onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }} variant={variant} />
+        <LeadCard
+          key={lead.id}
+          lead={lead as any}
+          selected={selectedIds.has(lead.id)}
+          onSelect={() => toggleSelect(lead.id)}
+          onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}
+          onViewDetails={() => { setSelectedLead(lead); setIsDetailOpen(true); }}
+          onEdit={getAllowedActionsForLead(lead.id).canEdit ? () => handleEdit(lead) : undefined}
+          onCall={() => handleCall(lead)}
+          onDelete={undefined}
+          variant={variant}
+        />
       ))}
     </div>
   );
@@ -499,11 +704,34 @@ export const ManagerLeadsPage = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label>Project</Label>
-                    <Input
-                      placeholder="Project ID (optional)"
-                      value={newLead.project}
-                      onChange={(e) => setNewLead({ ...newLead, project: e.target.value })}
-                    />
+                    <Select value={newLead.projectId} onValueChange={(v) => setNewLead({ ...newLead, projectId: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                      <SelectContent className="bg-popover">
+                        {projectOptions.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Budget *</Label>
+                    <Input placeholder="₹50L - ₹1Cr" value={newLead.budget} onChange={(e) => setNewLead({ ...newLead, budget: e.target.value })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label>Source *</Label>
+                    <Select value={newLead.source} onValueChange={(v) => setNewLead({ ...newLead, source: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-popover">
+                        <SelectItem value="Website">Website</SelectItem>
+                        <SelectItem value="Facebook">Facebook</SelectItem>
+                        <SelectItem value="Referral">Referral</SelectItem>
+                        <SelectItem value="Walk_in">Walk-in</SelectItem>
+                        <SelectItem value="Google_Ads">Google Ads</SelectItem>
+                        <SelectItem value="Unit_Interest">Unit Interest</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="grid gap-2">
                     <Label>Priority</Label>
@@ -565,7 +793,13 @@ export const ManagerLeadsPage = () => {
             {[...Array(5)].map((_, i) => (<div key={i} className="flex items-center gap-4"><Skeleton className="h-4 w-4" /><Skeleton className="h-10 w-32" /><Skeleton className="h-10 flex-1" /><Skeleton className="h-6 w-20" /></div>))}
           </div>
         ) : viewMode === 'calendar' ? (
-          <LeadCalendarView leads={filteredLeads} onLeadClick={(lead) => { setSelectedLead(lead); setIsDetailOpen(true); }} />
+          <LeadCalendarView
+            leads={filteredLeads as any}
+            onLeadClick={(lead: any) => {
+              setSelectedLead(lead as any);
+              setIsDetailOpen(true);
+            }}
+          />
         ) : (
           <div className="bg-card rounded-lg border border-border overflow-hidden">
             {viewMode === 'list' ? renderListView() : renderGridView(viewMode === 'grid-small' ? 'small' : 'large')}
@@ -577,15 +811,29 @@ export const ManagerLeadsPage = () => {
       {/* Bottom Action Bar */}
       <ActionBottomBar selectedCount={selectedIds.size} onClose={() => setSelectedIds(new Set())}>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="gap-2"><ArrowUpDown className="w-4 h-4" />Status</Button></DropdownMenuTrigger>
-          <DropdownMenuContent className="bg-popover">{statusOptions.slice(1).map((s) => (<DropdownMenuItem key={s.value} onClick={() => handleBulkStatusChange(s.value)}>{s.label}</DropdownMenuItem>))}</DropdownMenuContent>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2" disabled={!canBulkChangeStatus}>
+              <ArrowUpDown className="w-4 h-4" />Status
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="bg-popover">
+            {(statusList.length ? statusList : statusOptions.slice(1).map((s) => s.value)).map((s) => (
+              <DropdownMenuItem key={s} onClick={() => handleBulkStatusChange(s)}>
+                {statusLabel(s)}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
         </DropdownMenu>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="gap-2"><Users className="w-4 h-4" />Assign to</Button></DropdownMenuTrigger>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2" disabled={!canBulkAssign}>
+              <Users className="w-4 h-4" />Assign to
+            </Button>
+          </DropdownMenuTrigger>
           <DropdownMenuContent className="bg-popover">{staffOptions.map((a) => (<DropdownMenuItem key={a.id} onClick={() => handleBulkAssign(a.id)}>{a.name}</DropdownMenuItem>))}</DropdownMenuContent>
         </DropdownMenu>
         <Button variant="outline" size="sm" className="gap-2" onClick={handleExportAll}><Download className="w-4 h-4" />Export</Button>
-        <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" onClick={handleBulkDelete}><Trash2 className="w-4 h-4" />Delete</Button>
+        <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" disabled><Trash2 className="w-4 h-4" />Delete</Button>
       </ActionBottomBar>
 
       {/* Import Modal */}
@@ -607,7 +855,7 @@ export const ManagerLeadsPage = () => {
       </Dialog>
 
       {/* Lead Detail Modal */}
-      <LeadDetailModal lead={selectedLead} open={isDetailOpen} onOpenChange={setIsDetailOpen} />
+      <LeadDetailModal lead={detailLead} open={isDetailOpen} onOpenChange={setIsDetailOpen} />
 
       {/* Edit Lead Modal */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
@@ -634,16 +882,30 @@ export const ManagerLeadsPage = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label>Project</Label>
-                <Input
-                  placeholder="Project ID (optional)"
-                  value={editLead.project}
-                  onChange={(e) => setEditLead({ ...editLead, project: e.target.value })}
-                />
+                <Select value={editLead.projectId} onValueChange={(v) => setEditLead({ ...editLead, projectId: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                  <SelectContent className="bg-popover">
+                    {projectOptions.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid gap-2">
                 <Label>Budget</Label>
                 <Input placeholder="₹50L - ₹1Cr" value={editLead.budget} onChange={(e) => setEditLead({ ...editLead, budget: e.target.value })} />
               </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>Assign To</Label>
+              <Select value={editLead.assignedToId} onValueChange={(v) => setEditLead({ ...editLead, assignedToId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
+                <SelectContent className="bg-popover">
+                  {staffOptions.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
@@ -654,8 +916,9 @@ export const ManagerLeadsPage = () => {
                     <SelectItem value="Website">Website</SelectItem>
                     <SelectItem value="Facebook">Facebook</SelectItem>
                     <SelectItem value="Referral">Referral</SelectItem>
-                    <SelectItem value="Walk-in">Walk-in</SelectItem>
-                    <SelectItem value="Google Ads">Google Ads</SelectItem>
+                    <SelectItem value="Walk_in">Walk-in</SelectItem>
+                    <SelectItem value="Google_Ads">Google Ads</SelectItem>
+                    <SelectItem value="Unit_Interest">Unit Interest</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -678,7 +941,13 @@ export const ManagerLeadsPage = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => setIsEditOpen(false)}>Cancel</Button>
-            <Button className="w-full sm:w-auto" onClick={handleUpdateLead}>Update Lead</Button>
+            <Button
+              className="w-full sm:w-auto"
+              disabled={!selectedLead || !getAllowedActionsForLead(selectedLead.id).canEdit}
+              onClick={handleUpdateLead}
+            >
+              Update Lead
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
