@@ -19,16 +19,18 @@ export class ApiError extends Error {
 }
 
 const getBaseUrl = (): string => {
-  const base = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  const base = (import.meta.env.VITE_API_URL as string | undefined) || (import.meta.env.VITE_API_BASE_URL as string | undefined);
   if (!base) {
-    throw new ApiError('Missing VITE_API_BASE_URL. Add it to frontend/.env');
+    return '';
   }
   return base.replace(/\/$/, '');
 };
 
 const buildUrl = (path: string): string => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${getBaseUrl()}${cleanPath}`;
+  const base = getBaseUrl();
+  if (!base) return cleanPath;
+  return `${base}${cleanPath}`;
 };
 
 const toJsonOrText = async (res: Response): Promise<unknown> => {

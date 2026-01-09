@@ -12,8 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BookingCard } from "@/components/booking/BookingCard";
 import { BookingDetailSheet } from "@/components/booking/BookingDetailSheet";
-import { Booking, bookings as defaultBookings } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
+import { Booking } from "@/data/mockData";
+import { bookingsService } from "@/api";
 import { toast } from "@/hooks/use-toast";
 import { formatPrice } from "@/lib/unitHelpers";
 import { useClientPagination } from "@/hooks/useClientPagination";
@@ -22,35 +22,50 @@ import { PaginationBar } from "@/components/common/PaginationBar";
 export const ManagerBookingsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [search, setSearch] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>(defaultBookings);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [statuses, setStatuses] = useState<string[]>([]);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const loadBookings = async () => {
-    const data = await mockApi.get<Booking[]>('/bookings');
-    setBookings(data);
+    const res = await bookingsService.list();
+    setBookings(((res as any)?.data ?? []) as Booking[]);
   };
 
   useEffect(() => {
     loadBookings();
+    (async () => {
+      try {
+        const res = await bookingsService.statuses();
+        setStatuses(((res as any)?.data ?? []) as string[]);
+      } catch {
+        setStatuses([]);
+      }
+    })();
   }, []);
 
+  const isCancelRequested = (b: Booking) => {
+    const raw = typeof (b as any)?.managerNotes === 'string' ? String((b as any).managerNotes) : '';
+    return b.status === 'BOOKING_PENDING_APPROVAL' && raw.startsWith('CANCEL_REQUESTED|');
+  };
+
   const pendingApproval = bookings.filter(b => b.status === 'BOOKING_PENDING_APPROVAL');
+  const cancelRequests = pendingApproval.filter(isCancelRequested);
+  const bookingApprovals = pendingApproval.filter((b) => !isCancelRequested(b));
   const holdRequests = bookings.filter(b => b.status === 'HOLD_REQUESTED' || b.status === 'HOLD_CONFIRMED');
-  const confirmed = bookings.filter(b => ['BOOKING_CONFIRMED', 'PAYMENT_PENDING', 'BOOKED'].includes(b.status));
-  const cancelled = bookings.filter(b => ['CANCELLED', 'REFUNDED'].includes(b.status));
+  const confirmedStatuses = statuses.length ? statuses.filter((s) => ['BOOKING_CONFIRMED', 'PAYMENT_PENDING', 'BOOKED'].includes(s)) : ['BOOKING_CONFIRMED', 'PAYMENT_PENDING', 'BOOKED'];
+  const cancelledStatuses = statuses.length ? statuses.filter((s) => ['CANCELLED', 'REFUNDED'].includes(s)) : ['CANCELLED', 'REFUNDED'];
+  const confirmed = bookings.filter(b => confirmedStatuses.includes(b.status));
+  const cancelled = bookings.filter(b => cancelledStatuses.includes(b.status));
 
   const handleApprove = async (booking: Booking) => {
     setLoading(true);
     try {
-      await mockApi.patch('/bookings', booking.id, {
+      await bookingsService.approve(booking.id, {
         status: 'BOOKING_CONFIRMED',
-        managerId: 'u_mgr_1',
-        managerName: 'Deepak Patel',
-        managerApprovedAt: new Date().toISOString(),
-      });
-      await mockApi.patch('/units', booking.unitId, { status: 'BOOKED' });
+        approvedAt: new Date().toISOString(),
+      } as any);
       toast({ title: "Approved", description: `Booking for ${booking.unitNo} has been approved` });
       loadBookings();
     } catch (error) {
@@ -61,17 +76,8 @@ export const ManagerBookingsPage = () => {
   };
 
   const handleReject = async (booking: Booking) => {
-    setLoading(true);
-    try {
-      await mockApi.patch('/bookings', booking.id, { status: 'CANCELLED' });
-      await mockApi.patch('/units', booking.unitId, { status: 'AVAILABLE' });
-      toast({ title: "Rejected", description: `Booking for ${booking.unitNo} has been rejected` });
-      loadBookings();
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to reject booking", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
+    setSelectedBooking(booking);
+    setSheetOpen(true);
   };
 
   const handleViewDetails = (booking: Booking) => {
@@ -79,37 +85,46 @@ export const ManagerBookingsPage = () => {
     setSheetOpen(true);
   };
 
+  const searchLower = (search ?? '').toLowerCase();
+
   const filteredPending = pendingApproval.filter(b => 
-    b.customerName.toLowerCase().includes(search.toLowerCase()) ||
-    b.unitNo.toLowerCase().includes(search.toLowerCase())
+    (b.customerName ?? '').toLowerCase().includes(searchLower) ||
+    (b.unitNo ?? '').toLowerCase().includes(searchLower)
+  );
+
+  const filteredCancelled = cancelled.filter(b =>
+    (b.customerName ?? '').toLowerCase().includes(searchLower) ||
+    (b.unitNo ?? '').toLowerCase().includes(searchLower)
   );
 
   const filteredHolds = holdRequests.filter(b =>
-    b.customerName.toLowerCase().includes(search.toLowerCase()) ||
-    b.unitNo.toLowerCase().includes(search.toLowerCase())
+    (b.customerName ?? '').toLowerCase().includes(searchLower) ||
+    (b.unitNo ?? '').toLowerCase().includes(searchLower)
   );
 
   const filteredConfirmed = confirmed.filter(b =>
-    b.customerName.toLowerCase().includes(search.toLowerCase()) ||
-    b.unitNo.toLowerCase().includes(search.toLowerCase())
+    (b.customerName ?? '').toLowerCase().includes(searchLower) ||
+    (b.unitNo ?? '').toLowerCase().includes(searchLower)
   );
 
   const filteredAll = bookings.filter(b =>
-    b.customerName.toLowerCase().includes(search.toLowerCase()) ||
-    b.unitNo.toLowerCase().includes(search.toLowerCase())
+    (b.customerName ?? '').toLowerCase().includes(searchLower) ||
+    (b.unitNo ?? '').toLowerCase().includes(searchLower)
   );
 
   const { page: pendingPage, setPage: setPendingPage, totalPages: pendingTotalPages, pageItems: paginatedPending } = useClientPagination(filteredPending, { pageSize: 10 });
   const { page: holdsPage, setPage: setHoldsPage, totalPages: holdsTotalPages, pageItems: paginatedHolds } = useClientPagination(filteredHolds, { pageSize: 10 });
   const { page: confirmedPage, setPage: setConfirmedPage, totalPages: confirmedTotalPages, pageItems: paginatedConfirmed } = useClientPagination(filteredConfirmed, { pageSize: 10 });
+  const { page: cancelledPage, setPage: setCancelledPage, totalPages: cancelledTotalPages, pageItems: paginatedCancelled } = useClientPagination(filteredCancelled, { pageSize: 10 });
   const { page: allPage, setPage: setAllPage, totalPages: allTotalPages, pageItems: paginatedAll } = useClientPagination(filteredAll, { pageSize: 10 });
 
   useEffect(() => {
     setPendingPage(1);
     setHoldsPage(1);
     setConfirmedPage(1);
+    setCancelledPage(1);
     setAllPage(1);
-  }, [search, setPendingPage, setHoldsPage, setConfirmedPage, setAllPage]);
+  }, [search, setPendingPage, setHoldsPage, setConfirmedPage, setCancelledPage, setAllPage]);
 
   return (
     <PageWrapper
@@ -130,6 +145,7 @@ export const ManagerBookingsPage = () => {
             <TabsTrigger value="pending">Pending Approval ({pendingApproval.length})</TabsTrigger>
             <TabsTrigger value="holds">Hold Requests ({holdRequests.length})</TabsTrigger>
             <TabsTrigger value="confirmed">Confirmed ({confirmed.length})</TabsTrigger>
+            <TabsTrigger value="cancelled">Cancelled ({cancelled.length})</TabsTrigger>
             <TabsTrigger value="all">All Bookings</TabsTrigger>
           </TabsList>
           <div className="flex flex-wrap items-center gap-2">
@@ -156,25 +172,38 @@ export const ManagerBookingsPage = () => {
                 delay={index * 0.05}
                 showActions
                 actions={
-                  <>
-                    <Button 
-                      variant="destructive" 
-                      size="sm" 
+                  isCancelRequested(booking) ? (
+                    <Button
+                      size="sm"
                       className="w-full sm:w-auto"
-                      onClick={(e) => { e.stopPropagation(); handleReject(booking); }}
-                      disabled={loading}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleViewDetails(booking);
+                      }}
                     >
-                      <X className="w-4 h-4 mr-1" /> Reject
+                      Review
                     </Button>
-                    <Button 
-                      size="sm" 
-                      className="w-full sm:w-auto"
-                      onClick={(e) => { e.stopPropagation(); handleApprove(booking); }}
-                      disabled={loading}
-                    >
-                      <Check className="w-4 h-4 mr-1" /> Approve
-                    </Button>
-                  </>
+                  ) : (
+                    <>
+                      <Button 
+                        variant="destructive" 
+                        size="sm" 
+                        className="w-full sm:w-auto"
+                        onClick={(e) => { e.stopPropagation(); handleReject(booking); }}
+                        disabled={loading}
+                      >
+                        <X className="w-4 h-4 mr-1" /> Reject
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        className="w-full sm:w-auto"
+                        onClick={(e) => { e.stopPropagation(); handleApprove(booking); }}
+                        disabled={loading}
+                      >
+                        <Check className="w-4 h-4 mr-1" /> Approve
+                      </Button>
+                    </>
+                  )
                 }
               />
             ))
@@ -215,6 +244,27 @@ export const ManagerBookingsPage = () => {
           ))}
 
           <PaginationBar page={confirmedPage} totalPages={confirmedTotalPages} onPageChange={setConfirmedPage} className="px-0" />
+        </TabsContent>
+
+        <TabsContent value="cancelled" className="space-y-4">
+          {paginatedCancelled.length === 0 ? (
+            <Card className="p-12 text-center">
+              <XCircle className="w-12 h-12 mx-auto text-destructive/30 mb-4" />
+              <h3 className="font-semibold mb-2">No Cancelled Bookings</h3>
+              <p className="text-muted-foreground">Cancelled/refunded bookings will appear here</p>
+            </Card>
+          ) : (
+            paginatedCancelled.map((booking, index) => (
+              <BookingCard
+                key={booking.id}
+                booking={booking}
+                onClick={() => handleViewDetails(booking)}
+                delay={index * 0.05}
+              />
+            ))
+          )}
+
+          <PaginationBar page={cancelledPage} totalPages={cancelledTotalPages} onPageChange={setCancelledPage} className="px-0" />
         </TabsContent>
 
         <TabsContent value="all" className="space-y-4">

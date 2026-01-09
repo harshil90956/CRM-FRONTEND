@@ -12,13 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { mockApi } from "@/lib/mockApi";
 import { Unit } from "@/data/mockData";
 import { cn } from "@/lib/utils";
 import { getUnitDisplayType, getUnitArea, getUnitLocation, formatPrice, getStatusStyle, getStatusLabel } from "@/lib/unitHelpers";
 import { toast } from "sonner";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { httpClient } from "@/api";
 
 export const UnitsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
@@ -49,12 +49,12 @@ export const UnitsPage = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [unitsData, projectsData] = await Promise.all([
-        mockApi.get<Unit[]>("/units"),
-        mockApi.get<any[]>("/projects"),
+      const [unitsRes, projectsRes] = await Promise.all([
+        httpClient.get<Unit[]>("/units"),
+        httpClient.get<any[]>("/projects"),
       ]);
-      setUnits(unitsData);
-      setProjects(projectsData);
+      setUnits(((unitsRes as any)?.data ?? []) as Unit[]);
+      setProjects(((projectsRes as any)?.data ?? []) as any[]);
     } catch (e) {
       toast.error("Failed to load units");
     } finally {
@@ -106,7 +106,7 @@ export const UnitsPage = () => {
   const handleConfirmDelete = async () => {
     if (!deleteUnit) return;
     try {
-      await mockApi.delete("/units", deleteUnit.id);
+      await httpClient.delete(`/units/${deleteUnit.id}`);
       toast.success(`Unit "${deleteUnit.unitNo}" deleted`);
       setDeleteOpen(false);
       setDeleteUnit(null);

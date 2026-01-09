@@ -9,33 +9,34 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BookingCard } from "@/components/booking/BookingCard";
 import { BookingDetailSheet } from "@/components/booking/BookingDetailSheet";
-import { Booking, bookings as defaultBookings } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
+import { Booking } from "@/data/mockData";
+import { bookingsService } from "@/api";
 import { formatPrice } from "@/lib/unitHelpers";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { useAppStore } from "@/stores/appStore";
 
 export const AgentBookingsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
+  const { currentUser } = useAppStore();
   const [search, setSearch] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>(defaultBookings);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  // Mock agent ID
-  const agentId = 'u_agent_1';
+  const agentId = currentUser?.id;
 
   const loadBookings = async () => {
-    const data = await mockApi.get<Booking[]>('/bookings');
-    setBookings(data);
+    const res = await bookingsService.list();
+    setBookings(((res as any)?.data ?? []) as Booking[]);
   };
 
   useEffect(() => {
     loadBookings();
-  }, []);
+  }, [agentId]);
 
   // Filter bookings assigned to this agent
-  const myBookings = bookings.filter(b => b.agentId === agentId);
+  const myBookings = agentId ? bookings.filter((b) => b.agentId === agentId) : [];
   const inProgress = myBookings.filter(b => !['BOOKED', 'CANCELLED', 'REFUNDED'].includes(b.status));
   const completed = myBookings.filter(b => b.status === 'BOOKED');
   const totalValue = completed.reduce((sum, b) => sum + b.totalPrice, 0);

@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { mockApi } from "@/lib/mockApi";
 import { Unit } from "@/data/mockData";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { bookingsService, httpClient } from "@/api";
 
 type HoldRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
 
@@ -46,10 +46,13 @@ export const AdminPaymentsPage = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [bookingsData, unitsData] = await Promise.all([
-        mockApi.get<HoldRequest[]>("/bookings"),
-        mockApi.get<Unit[]>("/units"),
+      const [bookingsRes, unitsRes] = await Promise.all([
+        bookingsService.list(),
+        httpClient.get<Unit[]>("/units"),
       ]);
+
+      const bookingsData = ((bookingsRes as any)?.data ?? []) as any[];
+      const unitsData = ((unitsRes as any)?.data ?? []) as Unit[];
 
       const holdRequests = (bookingsData || [])
         .filter((b) => ["PENDING", "APPROVED", "REJECTED"].includes(String((b as any).status)))
@@ -57,6 +60,8 @@ export const AdminPaymentsPage = () => {
 
       setUnits(unitsData || []);
       setRequests(holdRequests);
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to load bookings/units', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -68,34 +73,33 @@ export const AdminPaymentsPage = () => {
 
   const approve = async (request: HoldRequest) => {
     if (request.status !== "PENDING") return;
+    try {
+      await bookingsService.updateStatus(request.id, {
+        status: 'HOLD_CONFIRMED',
+        approvedAt: new Date().toISOString(),
+      } as any);
 
-    await mockApi.patch<HoldRequest>("/bookings", request.id, {
-      status: "APPROVED" as const,
-      approvedAt: new Date().toISOString(),
-    } as any);
-
-    await mockApi.patch<Unit>("/units", request.unitId, {
-      status: "HOLD",
-    } as Partial<Unit>);
-
-    toast({ title: "Approved", description: "Unit is now on HOLD." });
-    await loadData();
+      toast({ title: "Approved", description: "Hold request approved." });
+      await loadData();
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to approve hold request', variant: 'destructive' });
+    }
   };
 
   const reject = async (request: HoldRequest) => {
     if (request.status !== "PENDING") return;
+    try {
+      await bookingsService.updateStatus(request.id, {
+        status: 'CANCELLED',
+        cancelledAt: new Date().toISOString(),
+        cancellationReason: 'Rejected by admin',
+      } as any);
 
-    await mockApi.patch<HoldRequest>("/bookings", request.id, {
-      status: "REJECTED" as const,
-      rejectedAt: new Date().toISOString(),
-    } as any);
-
-    await mockApi.patch<Unit>("/units", request.unitId, {
-      status: "AVAILABLE",
-    } as Partial<Unit>);
-
-    toast({ title: "Rejected", description: "Unit remains AVAILABLE." });
-    await loadData();
+      toast({ title: "Rejected", description: "Hold request rejected." });
+      await loadData();
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to reject hold request', variant: 'destructive' });
+    }
   };
 
   const statusBadge = (status: HoldRequestStatus) => {

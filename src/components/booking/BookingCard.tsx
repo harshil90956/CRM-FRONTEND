@@ -29,8 +29,15 @@ const getStatusConfig = (status: BookingStatus) => {
   return configs[status] || configs['HOLD_REQUESTED'];
 };
 
+const isCancelRequested = (booking: Booking) => {
+  const raw = typeof (booking as any)?.managerNotes === 'string' ? String((booking as any).managerNotes) : '';
+  return booking.status === 'BOOKING_PENDING_APPROVAL' && raw.startsWith('CANCEL_REQUESTED|');
+};
+
 export const BookingCard = ({ booking, onClick, showActions, actions, delay = 0 }: BookingCardProps) => {
-  const statusConfig = getStatusConfig(booking.status);
+  const statusConfig = isCancelRequested(booking)
+    ? { label: 'Cancel Requested', color: 'text-destructive', bgColor: 'bg-destructive/10' }
+    : getStatusConfig(booking.status);
 
   return (
     <motion.div

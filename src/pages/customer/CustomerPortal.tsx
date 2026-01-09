@@ -30,7 +30,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Label } from "@/components/ui/label";
 import { projects, units } from "@/data/mockData";
 import { getUnitDisplayType, getUnitArea, getUnitLocation, formatPrice } from "@/lib/unitHelpers";
-import { mockApi } from "@/lib/mockApi";
+import { bookingsService } from "@/api";
 import { toast } from "@/hooks/use-toast";
 import { useAppStore } from "@/stores/appStore";
 import { useClientPagination } from "@/hooks/useClientPagination";
@@ -71,18 +71,31 @@ export const CustomerPortal = () => {
   const { currentUser, login, logout } = useAppStore();
   const customerId = currentUser?.id;
   const [accessEnabled, setAccessEnabled] = useState(false);
+  const [isAccessLoading, setIsAccessLoading] = useState(false);
 
-  const loadAccess = () => {
+  const loadAccess = async () => {
     if (!customerId) {
       setAccessEnabled(false);
       return;
     }
-    const bookings = mockApi.getAll<any>("bookings");
-    const latest = bookings
-      .filter((b: any) => b.customerId === customerId)
-      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
-    setAccessEnabled(String(latest?.status) === "APPROVED");
+    setIsAccessLoading(true);
+    try {
+      const res = await bookingsService.list();
+      const bookings = res?.success ? (res.data ?? []) : [];
+
+      const latest = bookings
+        .filter((b: any) => b.customerId === customerId)
+        .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+      const status = String(latest?.status || '').toUpperCase();
+      const enabledStatuses = new Set(['BOOKED', 'BOOKING_CONFIRMED', 'APPROVED']);
+      setAccessEnabled(enabledStatuses.has(status));
+    } catch (error) {
+      setAccessEnabled(false);
+    } finally {
+      setIsAccessLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -90,12 +103,10 @@ export const CustomerPortal = () => {
   }, [customerId]);
 
   useEffect(() => {
-    const onStorage = () => loadAccess();
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("focus", onStorage);
+    const onRefresh = () => loadAccess();
+    window.addEventListener("focus", onRefresh);
     return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("focus", onStorage);
+      window.removeEventListener("focus", onRefresh);
     };
   }, [customerId]);
 
@@ -315,9 +326,13 @@ export const CustomerPortal = () => {
     
     // Pre-fill form with user data if available
     if (currentUser) {
+      const phone =
+        typeof (currentUser as any)?.phone === 'string'
+          ? String((currentUser as any).phone)
+          : '';
       setCallbackForm({
         name: currentUser.name || '',
-        phone: currentUser.phone || '',
+        phone,
         email: currentUser.email || '',
         message: ''
       });

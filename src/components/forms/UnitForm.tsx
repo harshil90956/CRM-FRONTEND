@@ -19,8 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { mockApi } from "@/lib/mockApi";
-import { projects as defaultProjects } from "@/data/mockData";
+import { httpClient } from "@/api";
 
 interface UnitFormProps {
   open: boolean;
@@ -71,8 +70,17 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    const stored = mockApi.getAll("projects");
-    setProjects(stored.length > 0 ? stored : defaultProjects);
+    if (!open) return;
+    const loadProjects = async () => {
+      try {
+        const res = await httpClient.get<any[]>("/projects");
+        setProjects(((res as any)?.data ?? []) as any[]);
+      } catch (e) {
+        setProjects([]);
+      }
+    };
+
+    loadProjects();
   }, [open]);
 
   useEffect(() => {
@@ -159,10 +167,10 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
       }
 
       if (mode === "edit" && initialUnitProp?.id) {
-        await mockApi.patch("/units", initialUnitProp.id, unitData);
+        await httpClient.patch(`/units/${initialUnitProp.id}`, unitData);
         toast.success(`Unit "${unit.unitNo}" updated successfully`);
       } else {
-        await mockApi.post("/units", unitData);
+        await httpClient.post("/units", unitData);
         toast.success(`Unit "${unit.unitNo}" created successfully`);
       }
       setUnit(initialUnit);
