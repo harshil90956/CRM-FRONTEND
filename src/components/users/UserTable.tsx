@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Edit, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { mockApi } from "@/lib/mockApi";
+import { adminUsersService } from "@/api/services/admin-users.service";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,7 +40,10 @@ export const UserTable = ({ users, onEdit, onRefresh }: UserTableProps) => {
   const handleToggleActive = async (user: User) => {
     setTogglingId(user.id);
     try {
-      await mockApi.patch("/users", user.id, { isActive: !user.isActive });
+      const res = await adminUsersService.updateStatus(user.id, !user.isActive);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to update status');
+      }
       toast.success(`User ${user.isActive ? "deactivated" : "activated"}`);
       onRefresh();
     } catch (error) {
@@ -53,7 +56,10 @@ export const UserTable = ({ users, onEdit, onRefresh }: UserTableProps) => {
   const handleDelete = async () => {
     if (!deleteId) return;
     try {
-      await mockApi.delete("/users", deleteId);
+      const res = await adminUsersService.delete(deleteId);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to delete user');
+      }
       toast.success("User deleted");
       setDeleteId(null);
       onRefresh();

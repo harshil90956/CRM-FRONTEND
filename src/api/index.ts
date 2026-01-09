@@ -1,5 +1,8 @@
 export { httpClient, ApiError } from './httpClient';
 export { healthService } from './services/health.service';
+export { adminUsersService } from './services/admin-users.service';
+export { managerTeamService } from './services/manager-team.service';
+export { projectsService } from './services/projects.service';
 export { leadsService } from './services/leads.service';
 export { bookingsService } from './services/bookings.service';
 export { paymentsService } from './services/payments.service';
