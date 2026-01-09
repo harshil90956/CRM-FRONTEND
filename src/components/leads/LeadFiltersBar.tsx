@@ -69,12 +69,13 @@ const sourceOptions = [
   { value: "Website", label: "Website" },
   { value: "Facebook", label: "Facebook" },
   { value: "Referral", label: "Referral" },
-  { value: "Walk-in", label: "Walk-in" },
-  { value: "Google Ads", label: "Google Ads" },
+  { value: "Walk_in", label: "Walk-in" },
+  { value: "Google_Ads", label: "Google Ads" },
   { value: "Instagram", label: "Instagram" },
   { value: "LinkedIn", label: "LinkedIn" },
   { value: "Conference", label: "Conference" },
-  { value: "Cold Email", label: "Cold Email" },
+  { value: "Cold_Email", label: "Cold Email" },
+  { value: "Unit_Interest", label: "Unit Interest" },
 ];
 
 export const LeadFiltersBar = ({
@@ -158,6 +159,7 @@ export const LeadFiltersBar = ({
           </SelectTrigger>
           <SelectContent className="bg-popover">
             <SelectItem value="all">All Agents</SelectItem>
+            <SelectItem value="unassigned">Unassigned</SelectItem>
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
             ))}

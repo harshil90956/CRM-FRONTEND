@@ -47,6 +47,10 @@ export type AdminUpdateLeadInput = {
   email?: string;
   phone?: string;
   notes?: string;
+  source?: string;
+  priority?: string;
+  projectId?: string;
+  budget?: string;
 };
 
 export type LeadStats = {
