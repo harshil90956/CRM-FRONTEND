@@ -11,7 +11,7 @@ import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 import { bookingsService, httpClient } from "@/api";
 
-type HoldRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+type HoldRequestStatus = "HOLD_REQUESTED" | "HOLD_CONFIRMED" | "CANCELLED";
 
 type HoldRequest = {
   id: string;
@@ -55,7 +55,7 @@ export const AdminPaymentsPage = () => {
       const unitsData = ((unitsRes as any)?.data ?? []) as Unit[];
 
       const holdRequests = (bookingsData || [])
-        .filter((b) => ["PENDING", "APPROVED", "REJECTED"].includes(String((b as any).status)))
+        .filter((b) => ["HOLD_REQUESTED", "HOLD_CONFIRMED", "CANCELLED"].includes(String((b as any).status)))
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       setUnits(unitsData || []);
@@ -72,7 +72,7 @@ export const AdminPaymentsPage = () => {
   }, []);
 
   const approve = async (request: HoldRequest) => {
-    if (request.status !== "PENDING") return;
+    if (request.status !== "HOLD_REQUESTED") return;
     try {
       await bookingsService.updateStatus(request.id, {
         status: 'HOLD_CONFIRMED',
@@ -87,7 +87,7 @@ export const AdminPaymentsPage = () => {
   };
 
   const reject = async (request: HoldRequest) => {
-    if (request.status !== "PENDING") return;
+    if (request.status !== "HOLD_REQUESTED") return;
     try {
       await bookingsService.updateStatus(request.id, {
         status: 'CANCELLED',
@@ -103,8 +103,8 @@ export const AdminPaymentsPage = () => {
   };
 
   const statusBadge = (status: HoldRequestStatus) => {
-    if (status === "APPROVED") return <span className="status-badge status-available">APPROVED</span>;
-    if (status === "REJECTED") return <span className="status-badge status-lost">REJECTED</span>;
+    if (status === "HOLD_CONFIRMED") return <span className="status-badge status-available">APPROVED</span>;
+    if (status === "CANCELLED") return <span className="status-badge status-lost">REJECTED</span>;
     return <span className="status-badge status-booked">PENDING</span>;
   };
 
@@ -149,11 +149,11 @@ export const AdminPaymentsPage = () => {
                     <TableCell>{statusBadge(r.status)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button size="sm" variant="outline" disabled={r.status !== "PENDING" || loading} onClick={() => approve(r)}>
+                        <Button size="sm" variant="outline" disabled={r.status !== "HOLD_REQUESTED" || loading} onClick={() => approve(r)}>
                           <CheckCircle2 className="w-4 h-4 mr-2" />
                           Approve
                         </Button>
-                        <Button size="sm" variant="outline" disabled={r.status !== "PENDING" || loading} onClick={() => reject(r)}>
+                        <Button size="sm" variant="outline" disabled={r.status !== "HOLD_REQUESTED" || loading} onClick={() => reject(r)}>
                           <XCircle className="w-4 h-4 mr-2" />
                           Reject
                         </Button>

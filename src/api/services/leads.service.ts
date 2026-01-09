@@ -121,10 +121,6 @@ export const leadsService = {
     return httpClient.get<LeadDb[]>('/leads');
   },
 
-  listManagerLeads: async () => {
-    return httpClient.get<LeadDb[]>('/manager/leads');
-  },
-
   getById: async (id: string) => {
     return httpClient.get<LeadDb>(`/leads/${id}`);
   },
@@ -135,14 +131,6 @@ export const leadsService = {
 
   assign: async (id: string, staffId: string) => {
     return httpClient.patch<LeadDb>(`/leads/${id}/assign`, { assignedToId: staffId });
-  },
-
-  assignManagerLead: async (id: string, assignedToId: string) => {
-    return httpClient.patch<LeadDb>(`/manager/leads/${id}/assign`, { assignedToId });
-  },
-
-  updateManagerLeadStatus: async (id: string, status: string) => {
-    return httpClient.patch<LeadDb>(`/manager/leads/${id}/status`, { status });
   },
 
   listAdminLeads: async () => {
@@ -189,7 +177,7 @@ export const leadsService = {
   },
 
   listManagerLeads: async () => {
-    return httpClient.get<ManagerLead[]>('/manager/leads');
+    return leadsService.getManagerLeads();
   },
 
   updateManagerLeadStatus: async (id: string, status: string) => {
