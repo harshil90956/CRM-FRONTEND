@@ -116,6 +116,23 @@ export type ManagerUpdateLeadInput = {
   assignedToId?: string;
 };
 
+ export type AgentUpdateLeadInput = {
+  name?: string;
+  email?: string;
+  phone?: string;
+  source?: string;
+  priority?: string;
+  budget?: string;
+  notes?: string;
+  projectId?: string;
+ };
+
+ export type AgentLogActivityInput = {
+  activityType: 'CALL' | 'MEETING' | 'EMAIL' | 'NOTE';
+  notes: string;
+  status?: string;
+ };
+
 export const leadsService = {
   list: async () => {
     return httpClient.get<LeadDb[]>('/leads');

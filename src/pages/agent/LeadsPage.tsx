@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Users, Search, MessageSquare, Phone } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
@@ -16,8 +16,9 @@ import { toast } from "sonner";
 import { getLeadStatusStyle } from "@/lib/unitHelpers";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
-import { leadsService } from "@/api";
+import { leadsService, projectsService } from "@/api";
 import type { LeadDb } from "@/api/services/leads.service";
+import type { ProjectDb } from "@/api/services/projects.service";
 import { useAppStore } from "@/stores/appStore";
 
 export const AgentLeadsPage = () => {
@@ -27,26 +28,62 @@ export const AgentLeadsPage = () => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedLead, setSelectedLead] = useState<LeadDb | null>(null);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [activityNote, setActivityNote] = useState("");
   const [activityType, setActivityType] = useState("call");
   const [activityStatus, setActivityStatus] = useState("");
-  
+  const [projects, setProjects] = useState<ProjectDb[]>([]);
+  const [editLead, setEditLead] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    projectId: "",
+    budget: "",
+    source: "Website",
+    priority: "Medium",
+    notes: "",
+  });
+
   // State management for leads - this is the single source of truth
   const [leadsData, setLeadsData] = useState<LeadDb[]>([]);
+
+  const loadLeads = async () => {
+    try {
+      const res = await leadsService.list();
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load leads');
+      }
+      setLeadsData(res.data || []);
+    } catch {
+      toast.error('Failed to load leads');
+    }
+  };
+
+  useEffect(() => {
+    void loadLeads();
+  }, []);
 
   useEffect(() => {
     void (async () => {
       try {
-        const res = await leadsService.list();
+        const res = await projectsService.list();
         if (!res.success) {
-          throw new Error(res.message || 'Failed to load leads');
+          throw new Error(res.message || 'Failed to load projects');
         }
-        setLeadsData(res.data || []);
+        setProjects(res.data || []);
       } catch {
-        toast.error('Failed to load leads');
+        setProjects([]);
       }
     })();
   }, []);
+
+  const projectNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    projects.forEach((p) => {
+      map[p.id] = p.name;
+    });
+    return map;
+  }, [projects]);
 
   const myLeads = currentUser?.id ? leadsData.filter((l) => l.assignedToId === currentUser.id) : [];
   const filteredLeads = myLeads.filter(l => {
@@ -61,12 +98,88 @@ export const AgentLeadsPage = () => {
     setPage(1);
   }, [search, statusFilter, setPage]);
 
-  const handleAddActivity = () => {
-    toast.error('Activity logging is not implemented on backend yet');
-    setIsActivityOpen(false);
+  const handleSaveActivity = async () => {
+    if (!selectedLead) return;
+
+    const typeMap: Record<string, 'CALL' | 'MEETING' | 'EMAIL' | 'NOTE'> = {
+      call: 'CALL',
+      meeting: 'MEETING',
+      email: 'EMAIL',
+      note: 'NOTE',
+    };
+
+    try {
+      const res = await leadsService.logAgentLeadActivity(selectedLead.id, {
+        activityType: typeMap[activityType] || 'NOTE',
+        notes: activityNote,
+        status: activityStatus || undefined,
+      });
+
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to save activity');
+      }
+
+      toast.success('Activity saved successfully');
+      setIsActivityOpen(false);
+      setActivityNote("");
+      setActivityType("call");
+      setActivityStatus("");
+
+      await loadLeads();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save activity';
+      toast.error(message);
+    }
+  };
+
+  const handleOpenActivity = (lead: LeadDb) => {
+    setSelectedLead(lead);
     setActivityNote("");
     setActivityType("call");
-    setActivityStatus("");
+    setActivityStatus(lead.status || "");
+    setIsActivityOpen(true);
+  };
+
+  const handleOpenEdit = (lead: LeadDb) => {
+    setSelectedLead(lead);
+    setEditLead({
+      name: lead.name || "",
+      email: lead.email || "",
+      phone: lead.phone || "",
+      projectId: lead.projectId || "",
+      budget: String(lead.budget ?? ""),
+      source: lead.source || "Website",
+      priority: (lead.priority || "Medium") as any,
+      notes: lead.notes || "",
+    });
+    setIsEditOpen(true);
+  };
+
+  const handleUpdateLead = async () => {
+    if (!selectedLead) return;
+    try {
+      const res = await leadsService.updateAgentLead(selectedLead.id, {
+        name: editLead.name,
+        email: editLead.email,
+        phone: editLead.phone,
+        projectId: editLead.projectId || undefined,
+        budget: editLead.budget,
+        source: editLead.source,
+        priority: editLead.priority,
+        notes: editLead.notes,
+      });
+
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to update lead');
+      }
+
+      setIsEditOpen(false);
+      await loadLeads();
+      toast.success('Lead updated successfully');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update lead';
+      toast.error(message);
+    }
   };
 
   const handleCall = (lead: LeadDb) => {
@@ -114,14 +227,15 @@ export const AgentLeadsPage = () => {
             <p className="text-sm text-muted-foreground mb-2">{lead.email}</p>
             <p className="text-sm text-muted-foreground mb-3">{lead.phone}</p>
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
-              <span>{lead.projectId || 'N/A'}</span>
+              <span>{lead.projectId ? (projectNameById[lead.projectId] || 'N/A') : 'N/A'}</span>
               <span>•</span>
               <span>{lead.budget}</span>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="flex-1" onClick={() => { 
-              toast.error('Activity logging is not implemented on backend yet');
-            }}>
+              <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenEdit(lead)}>
+                Edit
+              </Button>
+              <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenActivity(lead)}>
                 <MessageSquare className="w-4 h-4 mr-1" />Log Activity
               </Button>
               <Button variant="outline" size="icon" onClick={() => handleCall(lead)}>
@@ -177,7 +291,90 @@ export const AgentLeadsPage = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsActivityOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddActivity}>Save Activity</Button>
+            <Button onClick={handleSaveActivity}>Save Activity</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Lead</DialogTitle>
+            <DialogDescription>Update lead information</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label>Full Name</Label>
+              <Input placeholder="Enter full name" value={editLead.name} onChange={(e) => setEditLead({ ...editLead, name: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Email</Label>
+                <Input type="email" placeholder="email@example.com" value={editLead.email} onChange={(e) => setEditLead({ ...editLead, email: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Phone</Label>
+                <Input placeholder="+91 98765 43210" value={editLead.phone} onChange={(e) => setEditLead({ ...editLead, phone: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Project</Label>
+                <Select value={editLead.projectId || undefined} onValueChange={(v) => setEditLead({ ...editLead, projectId: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select project" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Budget</Label>
+                <Input placeholder="₹50L - ₹1Cr" value={editLead.budget} onChange={(e) => setEditLead({ ...editLead, budget: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Source</Label>
+                <Select value={editLead.source} onValueChange={(v) => setEditLead({ ...editLead, source: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Website">Website</SelectItem>
+                    <SelectItem value="Facebook">Facebook</SelectItem>
+                    <SelectItem value="Referral">Referral</SelectItem>
+                    <SelectItem value="Walk_in">Walk-in</SelectItem>
+                    <SelectItem value="Google_Ads">Google Ads</SelectItem>
+                    <SelectItem value="Unit_Interest">Unit Interest</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Priority</Label>
+                <Select value={editLead.priority} onValueChange={(v) => setEditLead({ ...editLead, priority: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="High">High</SelectItem>
+                    <SelectItem value="Medium">Medium</SelectItem>
+                    <SelectItem value="Low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>Notes</Label>
+              <Textarea placeholder="Additional notes..." value={editLead.notes} onChange={(e) => setEditLead({ ...editLead, notes: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+            <Button className="w-full sm:w-auto" onClick={handleUpdateLead}>
+              Update Lead
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
