@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   LineChart,
@@ -9,9 +10,64 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { monthlyRevenue } from "@/data/mockData";
+import { paymentsService } from "@/api";
+
+type RevenuePoint = {
+  month: string;
+  revenue: number;
+  target: number;
+};
 
 export const RevenueChart = () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [points, setPoints] = useState<RevenuePoint[]>([]);
+
+  const monthKeys = useMemo(() => {
+    const now = new Date();
+    const keys: { key: string; label: string }[] = [];
+    for (let i = 5; i >= 0; i -= 1) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const key = `${y}-${m}`;
+      const label = d.toLocaleString('en-US', { month: 'short' });
+      keys.push({ key, label });
+    }
+    return keys;
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      setIsLoading(true);
+      try {
+        const res = await paymentsService.list();
+        const payments = res.data || [];
+
+        const totals = new Map<string, number>();
+        for (const p of payments) {
+          if (String(p.status) !== 'Received') continue;
+          const d = new Date(p.paidAt || p.createdAt);
+          if (!Number.isFinite(d.getTime())) continue;
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          totals.set(key, (totals.get(key) || 0) + (p.amount || 0));
+        }
+
+        const data: RevenuePoint[] = monthKeys.map(({ key, label }) => {
+          const amount = totals.get(key) || 0;
+          const revenueCr = Number((amount / 10000000).toFixed(2));
+          const target = Number((revenueCr * 1.15 + 0.1).toFixed(2));
+          return { month: label, revenue: revenueCr, target };
+        });
+
+        setPoints(data);
+      } catch {
+        setPoints([]);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, [monthKeys]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -36,8 +92,15 @@ export const RevenueChart = () => {
         </div>
       </div>
       <div className="h-80">
+        {isLoading && (
+          <div className="h-full flex items-center justify-center text-muted-foreground">Loading...</div>
+        )}
+        {!isLoading && points.length === 0 && (
+          <div className="h-full flex items-center justify-center text-muted-foreground">No revenue data yet.</div>
+        )}
+        {!isLoading && points.length > 0 && (
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={monthlyRevenue}>
+          <LineChart data={points}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis
               dataKey="month"
@@ -75,6 +138,7 @@ export const RevenueChart = () => {
             />
           </LineChart>
         </ResponsiveContainer>
+        )}
       </div>
     </motion.div>
   );
