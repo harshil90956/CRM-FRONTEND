@@ -116,13 +116,42 @@ export type ManagerUpdateLeadInput = {
   assignedToId?: string;
 };
 
+ export type AgentUpdateLeadInput = {
+  name?: string;
+  email?: string;
+  phone?: string;
+  source?: string;
+  priority?: string;
+  budget?: string;
+  notes?: string;
+  projectId?: string;
+ };
+
+ export type AgentLogActivityInput = {
+  activityType: 'CALL' | 'MEETING' | 'EMAIL' | 'NOTE';
+  notes: string;
+  status?: string;
+ };
+
 export const leadsService = {
   list: async () => {
     return httpClient.get<LeadDb[]>('/leads');
   },
 
-  listManagerLeads: async () => {
-    return httpClient.get<LeadDb[]>('/manager/leads');
+  listAgentLeads: async () => {
+    return httpClient.get<LeadDb[]>('/agent/leads');
+  },
+
+  updateAgentLead: async (id: string, input: AgentUpdateLeadInput) => {
+    return httpClient.patch<LeadDb>(`/agent/leads/${id}`, input);
+  },
+
+  updateAgentLeadStatus: async (id: string, status: string) => {
+    return httpClient.patch<LeadDb>(`/agent/leads/${id}/status`, { status });
+  },
+
+  logAgentLeadActivity: async (id: string, input: AgentLogActivityInput) => {
+    return httpClient.post<unknown>(`/agent/leads/${id}/activity`, input);
   },
 
   getById: async (id: string) => {
@@ -135,14 +164,6 @@ export const leadsService = {
 
   assign: async (id: string, staffId: string) => {
     return httpClient.patch<LeadDb>(`/leads/${id}/assign`, { assignedToId: staffId });
-  },
-
-  assignManagerLead: async (id: string, assignedToId: string) => {
-    return httpClient.patch<LeadDb>(`/manager/leads/${id}/assign`, { assignedToId });
-  },
-
-  updateManagerLeadStatus: async (id: string, status: string) => {
-    return httpClient.patch<LeadDb>(`/manager/leads/${id}/status`, { status });
   },
 
   listAdminLeads: async () => {
