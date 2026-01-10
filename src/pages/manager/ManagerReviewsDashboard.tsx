@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { RatingStars } from "@/components/reviews/RatingStars";
 import { Review, agents } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
+import { reviewsService } from "@/api";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 
@@ -19,8 +19,8 @@ export const ManagerReviewsDashboard = () => {
 
   const fetchReviews = async () => {
     try {
-      const data = await mockApi.get<Review[]>("/reviews");
-      setReviews(data);
+      const res = await reviewsService.managerList();
+      setReviews(((res as any)?.data ?? []) as Review[]);
     } catch (error) {
       console.error("Failed to fetch reviews:", error);
     } finally {

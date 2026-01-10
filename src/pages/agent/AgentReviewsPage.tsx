@@ -5,10 +5,11 @@ import { Star, TrendingUp, MessageSquare } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { KPICard } from "@/components/cards/KPICard";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { ReviewList } from "@/components/reviews/ReviewList";
 import { RatingStars } from "@/components/reviews/RatingStars";
 import { Review } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
+import { reviewsService } from "@/api";
 import { useAppStore } from "@/stores/appStore";
 
 export const AgentReviewsPage = () => {
@@ -19,11 +20,8 @@ export const AgentReviewsPage = () => {
 
   const fetchReviews = async () => {
     try {
-      const allReviews = await mockApi.get<Review[]>("/reviews");
-      const agentReviews = allReviews.filter(
-        (r) => r.type === "agent" && r.targetId === currentUser?.id && r.status === "approved"
-      );
-      setReviews(agentReviews);
+      const res = await reviewsService.agentList(currentUser?.id || "");
+      setReviews(((res as any)?.data ?? []) as Review[]);
     } catch (error) {
       console.error("Failed to fetch reviews:", error);
     } finally {
@@ -53,6 +51,18 @@ export const AgentReviewsPage = () => {
       description="View reviews from your customers."
       sidebarCollapsed={sidebarCollapsed}
     >
+      <Card className="p-4 mb-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Review visibility</p>
+            <p className="text-sm text-muted-foreground">
+              These are reviews written by customers about you. Only <span className="font-medium">approved</span> reviews are shown here.
+            </p>
+          </div>
+          <Badge variant="outline">Visible to you only</Badge>
+        </div>
+      </Card>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <KPICard
@@ -113,7 +123,7 @@ export const AgentReviewsPage = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
           >
-            <ReviewList reviews={reviews} />
+            <ReviewList reviews={reviews} currentUserId={currentUser?.id || ""} />
           </motion.div>
         </div>
       </div>

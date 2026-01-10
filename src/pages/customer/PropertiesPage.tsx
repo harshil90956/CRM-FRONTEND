@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Search, MapPin, Home, Building2, Heart } from "lucide-react";
+import { Search, MapPin, Home, Building2, Heart, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -11,17 +11,88 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Unit } from "@/data/mockData";
 import { getUnitDisplayType, getUnitArea, formatPrice, isResidential } from "@/lib/unitHelpers";
 import { HoldUnitModal } from "@/components/booking/HoldUnitModal";
-import { httpClient } from "@/api";
+import { httpClient, reviewsService } from "@/api";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { ReviewModal } from "@/components/reviews/ReviewModal";
+import { useAppStore } from "@/stores/appStore";
+import { RatingStars } from "@/components/reviews/RatingStars";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ReviewForm } from "@/components/reviews/ReviewForm";
+import { ProjectReviewsSection } from "@/components/reviews/ProjectReviewsSection";
 
 export const CustomerPropertiesPage = () => {
+  const { currentUser } = useAppStore();
   const [units, setUnits] = useState<Unit[]>([]);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [budgetFilter, setBudgetFilter] = useState("all");
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
   const [holdModalOpen, setHoldModalOpen] = useState(false);
+
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<{ id: string; name: string } | null>(null);
+  const [approvedCountByUnitId, setApprovedCountByUnitId] = useState<Map<string, number>>(new Map());
+  const [submittedReviewByUnitId, setSubmittedReviewByUnitId] = useState<Map<string, { status: "pending" | "approved" }>>(new Map());
+  const [myReviewByUnitId, setMyReviewByUnitId] = useState<Map<string, { id?: string; rating?: number; comment?: string; status?: string }>>(new Map());
+  const [myReviewOpen, setMyReviewOpen] = useState(false);
+  const [myReviewView, setMyReviewView] = useState<{ unitId: string; unitName: string } | null>(null);
+  const [myReviewMode, setMyReviewMode] = useState<"view" | "edit">("view");
+
+  const [publicReviewsOpen, setPublicReviewsOpen] = useState(false);
+  const [publicReviewsTarget, setPublicReviewsTarget] = useState<{ id: string; name: string } | null>(null);
+
+  const getMyReviewStorageKey = () => {
+    const userId = String((currentUser as any)?.id || "");
+    return `reviews:my_review:customer:${userId}:properties`;
+  };
+
+  const loadMyReviewsFromStorage = () => {
+    try {
+      const key = getMyReviewStorageKey();
+      if (!key) return;
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, { id?: string; rating?: number; comment?: string; status?: string }>;
+      const next = new Map<string, { id?: string; rating?: number; comment?: string; status?: string }>();
+      Object.entries(parsed || {}).forEach(([k, v]) => {
+        next.set(String(k), v);
+      });
+      setMyReviewByUnitId(next);
+    } catch {
+      setMyReviewByUnitId(new Map());
+    }
+  };
+
+  const persistMyReviewsToStorage = (next: Map<string, { id?: string; rating?: number; comment?: string; status?: string }>) => {
+    try {
+      const key = getMyReviewStorageKey();
+      if (!key) return;
+      const obj: Record<string, any> = {};
+      next.forEach((v, k) => {
+        obj[String(k)] = v;
+      });
+      sessionStorage.setItem(key, JSON.stringify(obj));
+    } catch {
+      // ignore
+    }
+  };
+
+  const loadApprovedCounts = async () => {
+    try {
+      const res = await reviewsService.managerList();
+      const rows = (((res as any)?.data ?? []) as any[]).filter((r) => r?.type === 'property' && r?.status === 'approved');
+      const next = new Map<string, number>();
+      rows.forEach((r) => {
+        const key = String(r.targetId || '');
+        if (!key) return;
+        next.set(key, (next.get(key) ?? 0) + 1);
+      });
+      setApprovedCountByUnitId(next);
+    } catch {
+      setApprovedCountByUnitId(new Map());
+    }
+  };
 
   const loadUnits = async () => {
     const res = await httpClient.get<Unit[]>("/units");
@@ -33,6 +104,14 @@ export const CustomerPropertiesPage = () => {
   }, []);
 
   useEffect(() => {
+    loadApprovedCounts();
+  }, []);
+
+  useEffect(() => {
+    loadMyReviewsFromStorage();
+  }, [currentUser?.id]);
+
+  useEffect(() => {
     const onRefresh = () => loadUnits();
     window.addEventListener("storage", onRefresh);
     window.addEventListener("focus", onRefresh);
@@ -41,6 +120,65 @@ export const CustomerPropertiesPage = () => {
       window.removeEventListener("focus", onRefresh);
     };
   }, []);
+
+  const handleHoldUnit = (unit: Unit) => {
+    setSelectedUnit(unit);
+    setHoldModalOpen(true);
+  };
+
+  const handleHoldSuccess = () => {
+    if (!currentUser?.id) return;
+    if (!selectedUnit) return;
+    const unitId = String((selectedUnit as any)?.id || "");
+    const unitName = String((selectedUnit as any)?.unitNo || (selectedUnit as any)?.project || "");
+    if (!unitId) return;
+    setReviewTarget({ id: unitId, name: unitName });
+    setReviewModalOpen(true);
+  };
+
+  const handleWriteReview = (unit: Unit) => {
+    if (!currentUser?.id) return;
+    const unitId = String((unit as any)?.id || "");
+    const unitName = String((unit as any)?.unitNo || (unit as any)?.project || "");
+    if (!unitId) return;
+    setReviewTarget({ id: unitId, name: unitName });
+    setReviewModalOpen(true);
+  };
+
+  const openPublicReviews = (unitId: string, unitName: string) => {
+    setPublicReviewsTarget({ id: String(unitId), name: String(unitName) });
+    setPublicReviewsOpen(true);
+  };
+
+  const getSubmittedStatus = (unitId: string): "pending" | "approved" | null => {
+    return submittedReviewByUnitId.get(unitId)?.status ?? null;
+  };
+
+  const getMyReview = (unitId: string) => {
+    return myReviewByUnitId.get(unitId) ?? null;
+  };
+
+  const openMyReview = (unitId: string, unitName: string) => {
+    setMyReviewView({ unitId: String(unitId), unitName: String(unitName) });
+    setMyReviewMode("view");
+    setMyReviewOpen(true);
+  };
+
+  const openMyReviewEdit = (unitId: string, unitName: string) => {
+    setMyReviewView({ unitId: String(unitId), unitName: String(unitName) });
+    setMyReviewMode("edit");
+    setMyReviewOpen(true);
+  };
+
+  const extractReviewFields = (raw: any): { id?: string; rating: number; comment: string } | null => {
+    if (!raw) return null;
+    // support shapes like: {data: review}, {review: review}, {data:{review}}, or raw review
+    const candidate = raw?.review ?? raw?.data?.review ?? raw?.data ?? raw;
+    const id = candidate?.id ?? raw?.id;
+    const rating = Number(candidate?.rating ?? raw?.rating ?? 0);
+    const comment = String(candidate?.comment ?? raw?.comment ?? "");
+    return { id: id ? String(id) : undefined, rating, comment };
+  };
 
   const availableUnits = units.filter(u => u.status === 'AVAILABLE');
   const filteredUnits = availableUnits.filter(u => {
@@ -54,11 +192,6 @@ export const CustomerPropertiesPage = () => {
   useEffect(() => {
     setPage(1);
   }, [search, typeFilter, budgetFilter, setPage]);
-
-  const handleHoldUnit = (unit: Unit) => {
-    setSelectedUnit(unit);
-    setHoldModalOpen(true);
-  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -134,6 +267,17 @@ export const CustomerPropertiesPage = () => {
                   <div className="flex items-center gap-1 text-sm text-muted-foreground mb-2">
                     <MapPin className="w-3.5 h-3.5" />{unit.project}
                   </div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+                    <Star className="w-4 h-4" />
+                    <button
+                      type="button"
+                      className="hover:underline"
+                      onClick={() => openPublicReviews(String((unit as any)?.id || ""), String((unit as any)?.unitNo || unit.project || ""))}
+                    >
+                      {(approvedCountByUnitId.get(String((unit as any)?.id)) ?? 0)} reviews
+                    </button>
+                  </div>
+
                   <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
                     <span>{getUnitDisplayType(unit)}</span>
                     <span>•</span>
@@ -141,7 +285,44 @@ export const CustomerPropertiesPage = () => {
                   </div>
                   <div className="flex items-center justify-between">
                     <p className="text-lg font-semibold text-primary">{formatPrice(unit.price)}</p>
-                    <Button size="sm" onClick={() => handleHoldUnit(unit)}>Hold Unit</Button>
+                    <div className="flex flex-col items-end">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {Boolean(myReviewByUnitId.get(String((unit as any)?.id))?.id) ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              openMyReviewEdit(String((unit as any)?.id), String((unit as any)?.unitNo || (unit as any)?.project || ""))
+                            }
+                          >
+                            <Star className="w-4 h-4 mr-1" />
+                            Edit Review
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleWriteReview(unit)}
+                            disabled={!currentUser?.id}
+                          >
+                            <Star className="w-4 h-4 mr-1" />
+                            Review
+                          </Button>
+                        )}
+
+                        <Button size="sm" onClick={() => handleHoldUnit(unit)}>Hold Unit</Button>
+                      </div>
+
+                      {Boolean(myReviewByUnitId.get(String((unit as any)?.id))?.id) && (
+                        <button
+                          type="button"
+                          className="mt-1 text-xs font-normal text-muted-foreground hover:underline"
+                          onClick={() => openMyReview(String((unit as any)?.id), String((unit as any)?.unitNo || (unit as any)?.project || ""))}
+                        >
+                          view your review
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </CardEnhanced>
@@ -156,8 +337,121 @@ export const CustomerPropertiesPage = () => {
         open={holdModalOpen}
         onOpenChange={setHoldModalOpen}
         unit={selectedUnit}
-        onSuccess={() => {}}
+        onSuccess={handleHoldSuccess}
       />
+
+      {reviewTarget && currentUser?.id && (
+        <ReviewModal
+          open={reviewModalOpen}
+          onOpenChange={setReviewModalOpen}
+          target={{ type: "property", targetId: reviewTarget.id, targetName: reviewTarget.name }}
+          customerId={currentUser.id}
+          customerName={currentUser.name || ""}
+          tenantId={(currentUser as any)?.tenantId || ""}
+          onSubmitted={(createdOrUpdated) => {
+            setSubmittedReviewByUnitId((prev) => {
+              const next = new Map(prev);
+              next.set(String(reviewTarget.id), { status: "approved" });
+              return next;
+            });
+
+            const extracted = extractReviewFields(createdOrUpdated);
+            if (extracted) {
+              const { id, rating, comment } = extracted;
+              setMyReviewByUnitId((prev) => {
+                const next = new Map(prev);
+                next.set(String(reviewTarget.id), { id, rating, comment, status: "approved" });
+                persistMyReviewsToStorage(next);
+                return next;
+              });
+            }
+            loadApprovedCounts();
+          }}
+        />
+      )}
+
+      <Dialog
+        open={myReviewOpen}
+        onOpenChange={(open) => {
+          setMyReviewOpen(open);
+          if (!open) setMyReviewMode("view");
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Your Review</DialogTitle>
+          </DialogHeader>
+          {myReviewView && myReviewMode === "view" && (
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm text-muted-foreground">{myReviewView.unitName}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <RatingStars rating={Number(getMyReview(String(myReviewView.unitId))?.rating ?? 0)} size="sm" />
+                <span className="text-xs text-muted-foreground">Status: Approved</span>
+              </div>
+              <p className="text-sm text-foreground/80">{String(getMyReview(String(myReviewView.unitId))?.comment ?? "") || "No comment provided"}</p>
+
+              {Boolean(getMyReview(String(myReviewView.unitId))?.id) && (
+                <div className="flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setMyReviewMode("edit")}>
+                    Edit Review
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {myReviewView && myReviewMode === "edit" && currentUser?.id && (
+            <ReviewForm
+              reviewType="property"
+              targetId={String(myReviewView.unitId)}
+              targetName={String(myReviewView.unitName)}
+              customerId={currentUser.id}
+              customerName={currentUser.name || ""}
+              tenantId={(currentUser as any)?.tenantId || ""}
+              editData={{
+                id: String(getMyReview(String(myReviewView.unitId))?.id || ""),
+                rating: Number(getMyReview(String(myReviewView.unitId))?.rating ?? 0),
+                comment: String(getMyReview(String(myReviewView.unitId))?.comment ?? ""),
+              }}
+              cancelLabel="Cancel"
+              submitLabel="Save Changes"
+              onCancel={() => setMyReviewMode("view")}
+              onSuccess={(updated) => {
+                const extracted = extractReviewFields(updated);
+                if (extracted) {
+                  const { id, rating, comment } = extracted;
+                  setMyReviewByUnitId((prev) => {
+                    const next = new Map(prev);
+                    next.set(String(myReviewView.unitId), { id, rating, comment, status: "approved" });
+                    persistMyReviewsToStorage(next);
+                    return next;
+                  });
+                }
+                setMyReviewMode("view");
+                setMyReviewOpen(false);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={publicReviewsOpen} onOpenChange={setPublicReviewsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>All Reviews</DialogTitle>
+          </DialogHeader>
+          {publicReviewsTarget && (
+            <ProjectReviewsSection
+              type="property"
+              targetId={String(publicReviewsTarget.id)}
+              tenantId={String((currentUser as any)?.tenantId || "")}
+              currentUserId={String((currentUser as any)?.id || "")}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

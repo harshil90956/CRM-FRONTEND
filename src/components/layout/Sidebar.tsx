@@ -55,7 +55,6 @@ const getNavItems = (role: string): NavItem[] => {
       { label: "Payments", icon: DollarSign, path: "/admin/payments" },
       { label: "Bookings", icon: ClipboardList, path: "/admin/bookings" },
       { label: "Users", icon: UserCog, path: "/admin/users" },
-      { label: "Reviews", icon: ClipboardList, path: "/admin/reviews" },
       { label: "Reports", icon: BarChart3, path: "/admin/reports" },
       { label: "Construction", icon: HardHat, path: "/admin/construction" },
       { label: "Settings", icon: Settings, path: "/admin/settings" },
@@ -67,7 +66,6 @@ const getNavItems = (role: string): NavItem[] => {
       { label: "Team", icon: UserCheck, path: "/manager/team" },
       { label: "Payments", icon: DollarSign, path: "/manager/payments" },
       { label: "Bookings", icon: ClipboardList, path: "/manager/bookings" },
-      { label: "Reviews", icon: ClipboardList, path: "/manager/reviews" },
       { label: "Reports", icon: BarChart3, path: "/manager/reports" },
     ],
     agent: [
@@ -82,7 +80,6 @@ const getNavItems = (role: string): NavItem[] => {
       { label: "Properties", icon: Building2, path: "/customer" },
       { label: "Bookings", icon: ClipboardList, path: "/customer/bookings" },
       { label: "Payments", icon: DollarSign, path: "/customer/payments" },
-      { label: "My Reviews", icon: ClipboardList, path: "/customer/reviews" },
       { label: "My Interests", icon: Home, path: "/customer/interests" },
       { label: "Profile", icon: UserCog, path: "/customer/profile" },
     ],

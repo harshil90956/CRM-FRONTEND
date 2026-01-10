@@ -4,7 +4,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { ReviewCard } from "./ReviewCard";
 import { Review } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 
 interface ReviewListProps {
@@ -13,6 +12,8 @@ interface ReviewListProps {
   showActions?: boolean;
   showFilters?: boolean;
   pageSize?: number;
+  currentUserId?: string;
+  highlightReviewId?: string | null;
   onEdit?: (review: Review) => void;
   onDelete?: (reviewId: string) => void;
   onApprove?: (reviewId: string) => void;
@@ -26,6 +27,8 @@ export const ReviewList = ({
   showActions = false,
   showFilters = false,
   pageSize = 10,
+  currentUserId,
+  highlightReviewId = null,
   onEdit,
   onDelete,
   onApprove,
@@ -116,6 +119,8 @@ export const ReviewList = ({
               review={review}
               showStatus={showStatus}
               showActions={showActions}
+              currentUserId={currentUserId}
+              highlight={!!highlightReviewId && String(highlightReviewId) === String(review.id)}
               onEdit={onEdit}
               onDelete={onDelete}
               onApprove={onApprove}

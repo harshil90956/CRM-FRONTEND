@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ReviewList } from "@/components/reviews/ReviewList";
 import { ReviewForm } from "@/components/reviews/ReviewForm";
 import { Review } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
+import { reviewsService } from "@/api";
 import { toast } from "sonner";
 import { useAppStore } from "@/stores/appStore";
 
@@ -16,12 +16,12 @@ export const MyReviewsPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editReview, setEditReview] = useState<Review | null>(null);
+  const [highlightReviewId, setHighlightReviewId] = useState<string | null>(null);
 
   const fetchReviews = async () => {
     try {
-      const allReviews = await mockApi.get<Review[]>("/reviews");
-      const myReviews = allReviews.filter((r) => r.customerId === currentUser?.id);
-      setReviews(myReviews);
+      const res = await reviewsService.customerList(currentUser?.id || "");
+      setReviews(((res as any)?.data ?? []) as Review[]);
     } catch (error) {
       console.error("Failed to fetch reviews:", error);
     } finally {
@@ -48,15 +48,32 @@ export const MyReviewsPage = () => {
       toast.error("Only pending reviews can be deleted");
       return;
     }
-    await mockApi.delete("/reviews", id);
+    await reviewsService.customerUpdate(id, { customerId: currentUser?.id || "", delete: true } as any);
     toast.success("Review deleted");
-    fetchReviews();
+    setReviews((prev) => prev.filter((r) => r.id !== id));
   };
 
   const handleFormSuccess = () => {
     setShowForm(false);
     setEditReview(null);
-    fetchReviews();
+  };
+
+  const applyUpsertReview = (raw: any) => {
+    if (!raw) return;
+    const nextReview = raw as Review;
+    setReviews((prev) => {
+      const idx = prev.findIndex((r) => String(r.id) === String(nextReview.id));
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = nextReview;
+        return copy;
+      }
+      return [nextReview, ...prev];
+    });
+    if (nextReview?.id) {
+      setHighlightReviewId(String(nextReview.id));
+      window.setTimeout(() => setHighlightReviewId(null), 6000);
+    }
   };
 
   return (
@@ -82,13 +99,17 @@ export const MyReviewsPage = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <ReviewList
-            reviews={reviews}
-            showStatus
-            showActions
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-          />
+          {!isLoading && (
+            <ReviewList
+              reviews={reviews}
+              showStatus
+              showActions
+              currentUserId={currentUser?.id || ""}
+              highlightReviewId={highlightReviewId}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
+          )}
         </motion.div>
 
         <Dialog open={showForm} onOpenChange={setShowForm}>
@@ -102,7 +123,10 @@ export const MyReviewsPage = () => {
               customerId={currentUser?.id || ""}
               customerName={currentUser?.name || ""}
               tenantId="t_soundarya"
-              onSuccess={handleFormSuccess}
+              onSuccess={(createdOrUpdated) => {
+                applyUpsertReview(createdOrUpdated);
+                handleFormSuccess();
+              }}
               onCancel={() => { setShowForm(false); setEditReview(null); }}
               editData={editReview ? {
                 id: editReview.id,

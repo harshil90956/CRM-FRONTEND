@@ -6,18 +6,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RatingStars } from "./RatingStars";
 import { ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { mockApi } from "@/lib/mockApi";
+import { reviewsService } from "@/api";
 import { projects, agents } from "@/data/mockData";
 
 interface ReviewFormProps {
-  reviewType?: "property" | "agent";
+  reviewType?: "property" | "agent" | "project";
   targetId?: string;
   targetName?: string;
   customerId: string;
   customerName: string;
   tenantId: string;
-  onSuccess?: () => void;
+  onSuccess?: (...args: any[]) => void;
   onCancel?: () => void;
+  cancelLabel?: string;
+  submitLabel?: string;
   editData?: {
     id: string;
     rating: number;
@@ -35,9 +37,11 @@ export const ReviewForm = ({
   tenantId,
   onSuccess,
   onCancel,
+  cancelLabel,
+  submitLabel,
   editData,
 }: ReviewFormProps) => {
-  const [reviewType, setReviewType] = useState<"property" | "agent">(initialType || "property");
+  const [reviewType, setReviewType] = useState<"property" | "agent" | "project">(initialType || "property");
   const [targetId, setTargetId] = useState(initialTargetId || "");
   const [rating, setRating] = useState(editData?.rating || 0);
   const [comment, setComment] = useState(editData?.comment || "");
@@ -45,7 +49,14 @@ export const ReviewForm = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const targets = reviewType === "property" ? projects : agents;
+  const getSafeImagesForApi = (value: string[]): string[] => {
+    return value
+      .filter((x) => typeof x === "string" && x.trim().length > 0)
+      .filter((x) => !x.trim().toLowerCase().startsWith("data:"))
+      .slice(0, 3);
+  };
+
+  const targets = reviewType === "agent" ? agents : projects;
   const selectedTarget = targets.find((t) => t.id === targetId);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -86,29 +97,66 @@ export const ReviewForm = ({
 
     setIsSubmitting(true);
 
+    const safeImages = getSafeImagesForApi(images);
+    if (images.length > 0 && safeImages.length === 0) {
+      toast.error("Images are too large to upload. Please remove images or use image URLs.");
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
-      const payload = {
-        type: reviewType,
-        targetId: targetId || initialTargetId,
-        targetName: selectedTarget?.name || initialTargetName,
-        customerId,
-        customerName,
-        rating,
-        comment,
-        images,
-        status: "pending",
-        tenantId,
+      const effectiveTargetId = (targetId || initialTargetId) as string;
+      const effectiveTargetName = (selectedTarget?.name || initialTargetName || "") as string;
+      const normalizedRating = Number(rating || 0);
+      const normalizedComment = String(comment || "").trim();
+
+      const normalizeReviewPayload = (raw: any) => {
+        const candidate = raw?.review ?? raw?.data?.review ?? raw?.data ?? raw;
+        const out = {
+          ...(candidate && typeof candidate === 'object' ? candidate : {}),
+          type: (candidate?.type || reviewType) as any,
+          targetId: String(candidate?.targetId || effectiveTargetId || ""),
+          targetName: String(candidate?.targetName || effectiveTargetName || ""),
+          customerId: String(candidate?.customerId || customerId || ""),
+          customerName: String(candidate?.customerName || customerName || ""),
+          rating: Number(candidate?.rating ?? normalizedRating ?? 0),
+          comment: String(candidate?.comment ?? normalizedComment ?? ""),
+          status: String(candidate?.status || "approved"),
+          tenantId: String(candidate?.tenantId || tenantId || ""),
+        };
+        return out;
       };
 
       if (editData?.id) {
-        await mockApi.patch("/reviews", editData.id, payload);
+        const res = await reviewsService.customerUpdate(editData.id, {
+          customerId,
+          rating,
+          comment,
+        });
+        const payload = (res as any)?.data ?? res;
+        if ((payload as any)?.success === false) {
+          toast.error(String((payload as any)?.message || "Failed to update review"));
+          return;
+        }
         toast.success("Review updated successfully");
+        onSuccess?.(normalizeReviewPayload(payload));
       } else {
-        await mockApi.post("/reviews", payload);
-        toast.success("Review submitted and pending moderation");
+        const res = await reviewsService.customerCreate({
+          type: reviewType,
+          targetId: effectiveTargetId,
+          customerId,
+          rating,
+          comment: normalizedComment,
+          tenantId,
+        });
+        const payload = (res as any)?.data ?? res;
+        if ((payload as any)?.success === false) {
+          toast.error(String((payload as any)?.message || "Failed to submit review"));
+          return;
+        }
+        toast.success("Review submitted successfully");
+        onSuccess?.(normalizeReviewPayload(payload));
       }
-
-      onSuccess?.();
     } catch (error) {
       toast.error("Failed to submit review");
     } finally {
@@ -121,13 +169,14 @@ export const ReviewForm = ({
       {!initialType && (
         <div>
           <Label>Review Type</Label>
-          <Select value={reviewType} onValueChange={(v: "property" | "agent") => { setReviewType(v); setTargetId(""); }}>
+          <Select value={reviewType} onValueChange={(v: "property" | "agent" | "project") => { setReviewType(v); setTargetId(""); }}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="property">Property</SelectItem>
               <SelectItem value="agent">Agent</SelectItem>
+              <SelectItem value="project">Project</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -135,7 +184,7 @@ export const ReviewForm = ({
 
       {!initialTargetId && (
         <div>
-          <Label>Select {reviewType === "property" ? "Property" : "Agent"}</Label>
+          <Label>Select {reviewType === "agent" ? "Agent" : "Project"}</Label>
           <Select value={targetId} onValueChange={setTargetId}>
             <SelectTrigger>
               <SelectValue placeholder={`Select a ${reviewType}`} />
@@ -203,11 +252,11 @@ export const ReviewForm = ({
       <div className="flex gap-2 justify-end">
         {onCancel && (
           <Button variant="outline" onClick={onCancel}>
-            Cancel
+            {cancelLabel || "Cancel"}
           </Button>
         )}
         <Button onClick={handleSubmit} disabled={isSubmitting}>
-          {isSubmitting ? "Submitting..." : editData ? "Update Review" : "Submit Review"}
+          {isSubmitting ? "Submitting..." : (submitLabel || (editData ? "Update Review" : "Submit Review"))}
         </Button>
       </div>
     </div>
