@@ -37,7 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { mockApi } from "@/lib/mockApi";
+import { projectsService } from "@/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useClientPagination } from "@/hooks/useClientPagination";
@@ -78,8 +78,8 @@ export const ProjectsPage = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [editProject, setEditProject] = useState({ name: "", location: "", status: "Active", totalUnits: 0, priceRange: "" });
-  const [newProject, setNewProject] = useState({ name: "", location: "", status: "Active", totalUnits: 0, priceRange: "" });
+  const [editProject, setEditProject] = useState({ name: "", location: "", status: "Active", priceRange: "" });
+  const [newProject, setNewProject] = useState({ name: "", location: "", status: "Active", priceRange: "" });
 
   useEffect(() => {
     loadProjects();
@@ -90,10 +90,14 @@ export const ProjectsPage = () => {
   const loadProjects = async () => {
     setIsLoading(true);
     try {
-      const data = await mockApi.get<Project[]>("/projects");
-      setProjects(data);
+      const res = await projectsService.list();
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load projects');
+      }
+      setProjects((res.data || []) as Project[]);
     } catch (error) {
       console.error("Failed to load projects:", error);
+      toast.error("Failed to load projects");
     } finally {
       setIsLoading(false);
     }
@@ -109,7 +113,10 @@ export const ProjectsPage = () => {
     
     setIsClosing(true);
     try {
-      await mockApi.closeProject(selectedProject.id);
+      const res = await projectsService.update(selectedProject.id, { isClosed: true, status: 'CLOSED' });
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to close project');
+      }
       toast.success(`${selectedProject.name} has been closed. All units are now unavailable.`);
       await loadProjects();
     } catch (error) {
@@ -132,7 +139,6 @@ export const ProjectsPage = () => {
       name: project.name,
       location: project.location,
       status: project.status,
-      totalUnits: project.totalUnits,
       priceRange: project.priceRange
     });
     setIsEditDialogOpen(true);
@@ -142,12 +148,20 @@ export const ProjectsPage = () => {
     if (!selectedProject) return;
     
     try {
-      await mockApi.patch("/projects", selectedProject.id, editProject);
+      const res = await projectsService.update(selectedProject.id, {
+        name: editProject.name,
+        location: editProject.location,
+        status: editProject.status,
+        priceRange: editProject.priceRange,
+      });
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to update project');
+      }
       toast.success(`${editProject.name} has been updated successfully.`);
       await loadProjects();
       setIsEditDialogOpen(false);
       setSelectedProject(null);
-      setEditProject({ name: "", location: "", status: "Active", totalUnits: 0, priceRange: "" });
+      setEditProject({ name: "", location: "", status: "Active", priceRange: "" });
     } catch (error) {
       toast.error("Failed to update project. Please try again.");
     }
@@ -160,16 +174,19 @@ export const ProjectsPage = () => {
     }
     
     try {
-      await mockApi.post("/projects", {
-        ...newProject,
-        soldUnits: 0,
-        bookedUnits: 0,
-        availableUnits: newProject.totalUnits
+      const res = await projectsService.create({
+        name: newProject.name,
+        location: newProject.location,
+        status: newProject.status,
+        priceRange: newProject.priceRange,
       });
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to add project');
+      }
       toast.success("Project added successfully");
       await loadProjects();
       setIsAddDialogOpen(false);
-      setNewProject({ name: "", location: "", status: "Active", totalUnits: 0, priceRange: "" });
+      setNewProject({ name: "", location: "", status: "Active", priceRange: "" });
     } catch (error) {
       toast.error("Failed to add project. Please try again.");
     }
@@ -184,7 +201,10 @@ export const ProjectsPage = () => {
     if (!selectedProject) return;
     
     try {
-      await mockApi.delete("/projects", selectedProject.id);
+      const res = await projectsService.delete(selectedProject.id);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to delete project');
+      }
       toast.success("Project deleted successfully");
       await loadProjects();
       setIsDeleteDialogOpen(false);
@@ -215,12 +235,9 @@ export const ProjectsPage = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {paginatedProjects.map((project, index) => {
-            const soldPercentage = Math.round(
-              (project.soldUnits / project.totalUnits) * 100
-            );
-            const bookedPercentage = Math.round(
-              (project.bookedUnits / project.totalUnits) * 100
-            );
+            const safeTotalUnits = project.totalUnits > 0 ? project.totalUnits : 1;
+            const soldPercentage = Math.round((project.soldUnits / safeTotalUnits) * 100);
+            const bookedPercentage = Math.round((project.bookedUnits / safeTotalUnits) * 100);
             const isClosed = project.isClosed || project.status === 'CLOSED';
 
             return (
@@ -470,7 +487,7 @@ export const ProjectsPage = () => {
             </div>
             <div className="space-y-2">
               <Label>Total Units</Label>
-              <Input type="number" placeholder="Enter total units" value={editProject.totalUnits} onChange={(e) => setEditProject({ ...editProject, totalUnits: parseInt(e.target.value) || 0 })} />
+              <Input type="number" placeholder="Derived from Units" value={selectedProject?.totalUnits ?? 0} disabled />
             </div>
             <div className="space-y-2">
               <Label>Price Range</Label>
@@ -513,7 +530,7 @@ export const ProjectsPage = () => {
             </div>
             <div className="space-y-2">
               <Label>Total Units</Label>
-              <Input type="number" placeholder="Enter total units" value={newProject.totalUnits} onChange={(e) => setNewProject({ ...newProject, totalUnits: parseInt(e.target.value) || 0 })} />
+              <Input type="number" placeholder="Derived from Units" value={0} disabled />
             </div>
             <div className="space-y-2">
               <Label>Price Range</Label>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -38,15 +38,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAppStore } from "@/stores/appStore";
+import { paymentsService, projectsService, superAdminUsersService } from "@/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 
+type TenantRow = {
+  id: string;
+  adminUserId: string;
+  name: string;
+  email: string;
+  projects: number;
+  users: number;
+  subscription: string;
+  status: "Active" | "Suspended";
+  revenue: string;
+};
+
 export const SuperAdminDashboard = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
-  const { tenants, addTenant, isLoading } = useAppStore();
+  const [tenants, setTenants] = useState<TenantRow[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [totalReceivedAmount, setTotalReceivedAmount] = useState(0);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newTenant, setNewTenant] = useState({
     name: "",
@@ -55,32 +69,128 @@ export const SuperAdminDashboard = () => {
     subscription: "Business",
   });
 
+  const formatMoney = (amount: number): string => {
+    if (!Number.isFinite(amount) || amount <= 0) return "₹0";
+    if (amount >= 10000000) return `₹${(amount / 10000000).toFixed(2)}Cr`;
+    return `₹${Math.round(amount).toLocaleString()}`;
+  };
+
+  const makeTenantId = (name: string, domain?: string): string => {
+    const base = (domain || name).trim().toLowerCase();
+    const slug = base
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 24);
+    const suffix = Date.now().toString(36);
+    return `tenant_${slug || 'new'}_${suffix}`;
+  };
+
+  const loadTenants = async () => {
+    setIsLoading(true);
+    try {
+      const [usersRes, projectsRes, paymentsRes] = await Promise.all([
+        superAdminUsersService.list(),
+        projectsService.list(),
+        paymentsService.list(),
+      ]);
+
+      const users = usersRes.data || [];
+      const projects = projectsRes.data || [];
+      const payments = paymentsRes.data || [];
+
+      const byTenant = new Map<string, typeof users>();
+      for (const u of users) {
+        if (u.role === 'SUPER_ADMIN') continue;
+        const arr = byTenant.get(u.tenantId) || [];
+        arr.push(u);
+        byTenant.set(u.tenantId, arr);
+      }
+
+      const projectCountByTenant = new Map<string, number>();
+      for (const p of projects) {
+        projectCountByTenant.set(p.tenantId, (projectCountByTenant.get(p.tenantId) || 0) + 1);
+      }
+
+      const revenueByTenant = new Map<string, number>();
+      let totalReceived = 0;
+      for (const pay of payments) {
+        if (String(pay.status) !== 'Received') continue;
+        const amount = pay.amount || 0;
+        revenueByTenant.set(pay.tenantId, (revenueByTenant.get(pay.tenantId) || 0) + amount);
+        totalReceived += amount;
+      }
+
+      const rows: TenantRow[] = [];
+
+      for (const [tenantId, tenantUsers] of byTenant.entries()) {
+        const admins = tenantUsers
+          .filter((u) => u.role === 'ADMIN')
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const admin = admins[0];
+        if (!admin) continue;
+
+        rows.push({
+          id: tenantId,
+          adminUserId: admin.id,
+          name: admin.name,
+          email: admin.email,
+          projects: projectCountByTenant.get(tenantId) || 0,
+          users: tenantUsers.length,
+          subscription: '—',
+          status: admin.isActive ? 'Active' : 'Suspended',
+          revenue: formatMoney(revenueByTenant.get(tenantId) || 0),
+        });
+      }
+
+      rows.sort((a, b) => a.name.localeCompare(b.name));
+      setTenants(rows);
+      setTotalReceivedAmount(totalReceived);
+    } catch (e) {
+      setTenants([]);
+      setTotalReceivedAmount(0);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const totalTenants = tenants.length;
   const activeTenants = tenants.filter((t) => t.status === "Active").length;
-  const totalRevenue = "₹469 Cr";
+  const totalRevenue = formatMoney(totalReceivedAmount);
   const totalUsers = tenants.reduce((sum, t) => sum + t.users, 0);
 
+  const suspendedTenants = tenants.filter((t) => t.status === 'Suspended');
+
   const { page, setPage, totalPages, pageItems: paginatedTenants } = useClientPagination(tenants, { pageSize: 10 });
+
+  useEffect(() => {
+    void loadTenants();
+  }, []);
 
   const handleAddTenant = async () => {
     if (!newTenant.name || !newTenant.email) {
       toast.error("Please fill in all required fields");
       return;
     }
-    
-    await addTenant({
-      name: newTenant.name,
-      email: newTenant.email,
-      projects: 0,
-      users: 1,
-      subscription: newTenant.subscription,
-      status: "Active",
-      revenue: "₹0",
-    });
-    
-    toast.success(`Success — Tenant "${newTenant.name}" created`);
-    setIsAddDialogOpen(false);
-    setNewTenant({ name: "", email: "", domain: "", subscription: "Business" });
+
+    setIsLoading(true);
+    try {
+      const tenantId = makeTenantId(newTenant.name, newTenant.domain);
+      const res = await superAdminUsersService.create({
+        name: newTenant.name,
+        email: newTenant.email,
+        role: 'ADMIN',
+        tenantId,
+      });
+      if (!res.success) throw new Error(res.message || 'Failed to create tenant');
+      toast.success(`Success — Tenant "${newTenant.name}" created`);
+      setIsAddDialogOpen(false);
+      setNewTenant({ name: "", email: "", domain: "", subscription: "Business" });
+      await loadTenants();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to create tenant');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -103,20 +213,21 @@ export const SuperAdminDashboard = () => {
         <KPICard title="Platform Revenue" value={totalRevenue} change={22} changeLabel="YoY" icon={IndianRupee} iconColor="text-primary" delay={0.3} />
       </div>
 
-      {/* Alert */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.2 }}
-        className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-6 flex flex-col gap-3 sm:flex-row sm:items-center"
-      >
-        <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
-        <div className="flex-1">
-          <p className="text-sm font-medium text-foreground">1 tenant has been suspended</p>
-          <p className="text-xs text-muted-foreground">Sobha Developers - Payment overdue for 45 days</p>
-        </div>
-        <Button variant="outline" size="sm" className="w-full sm:w-auto">View Details</Button>
-      </motion.div>
+      {suspendedTenants.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.2 }}
+          className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-6 flex flex-col gap-3 sm:flex-row sm:items-center"
+        >
+          <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">{suspendedTenants.length} tenant(s) are suspended</p>
+            <p className="text-xs text-muted-foreground">{suspendedTenants[0].name}</p>
+          </div>
+          <Button variant="outline" size="sm" className="w-full sm:w-auto">View Details</Button>
+        </motion.div>
+      )}
 
       {/* Revenue Chart */}
       <div className="mb-6">

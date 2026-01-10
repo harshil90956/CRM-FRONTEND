@@ -138,22 +138,6 @@ export const leadsService = {
     return httpClient.get<LeadDb[]>('/leads');
   },
 
-  listAgentLeads: async () => {
-    return httpClient.get<LeadDb[]>('/agent/leads');
-  },
-
-  updateAgentLead: async (id: string, input: AgentUpdateLeadInput) => {
-    return httpClient.patch<LeadDb>(`/agent/leads/${id}`, input);
-  },
-
-  updateAgentLeadStatus: async (id: string, status: string) => {
-    return httpClient.patch<LeadDb>(`/agent/leads/${id}/status`, { status });
-  },
-
-  logAgentLeadActivity: async (id: string, input: AgentLogActivityInput) => {
-    return httpClient.post<unknown>(`/agent/leads/${id}/activity`, input);
-  },
-
   getById: async (id: string) => {
     return httpClient.get<LeadDb>(`/leads/${id}`);
   },
@@ -210,7 +194,7 @@ export const leadsService = {
   },
 
   listManagerLeads: async () => {
-    return httpClient.get<ManagerLead[]>('/manager/leads');
+    return leadsService.getManagerLeads();
   },
 
   updateManagerLeadStatus: async (id: string, status: string) => {

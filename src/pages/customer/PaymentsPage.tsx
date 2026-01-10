@@ -6,77 +6,64 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Booking, Payment } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
+import { bookingsService, paymentsService } from "@/api";
 import { formatPrice } from "@/lib/unitHelpers";
 import { useAppStore } from "@/stores/appStore";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { toast } from "@/hooks/use-toast";
 
 export const CustomerPaymentsPage = () => {
   const { currentUser } = useAppStore();
-  const customerId = currentUser?.id || "u_cust_2";
+  const customerId = currentUser?.id;
 
   const [accessEnabled, setAccessEnabled] = useState(false);
   const [credits, setCredits] = useState(0);
   const [latestAdminPaymentStatus, setLatestAdminPaymentStatus] = useState<"PENDING" | "APPROVED" | "REJECTED" | "NONE">("NONE");
 
-  const [payments, setPayments] = useState<Payment[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [search, setSearch] = useState("");
 
-  const loadAccess = () => {
-    const bookings = mockApi.getAll<any>("bookings");
-    const latest = bookings
-      .filter((b: any) => b.customerId === customerId)
-      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-
-    const status = (latest?.status || "NONE") as any;
-    setLatestAdminPaymentStatus(status);
-    setAccessEnabled(status === "APPROVED");
-    setCredits(status === "APPROVED" ? Number(latest?.tokenAmount || 0) : 0);
-  };
-
   const loadData = async () => {
-    const [paymentsData, bookingsData] = await Promise.all([
-      mockApi.get<Payment[]>("/payments"),
-      mockApi.get<Booking[]>("/bookings"),
+    const [paymentsRes, bookingsRes] = await Promise.all([
+      paymentsService.list(),
+      bookingsService.list(),
     ]);
 
-    const myBookings = bookingsData.filter(
-      (b) => b.customerId === customerId || b.customerId.includes("cust")
-    );
+    const bookingsData = (((bookingsRes as any)?.data ?? []) as Booking[]);
+    const paymentsData = (((paymentsRes as any)?.data ?? []) as any[]).map((p: any) => ({
+      ...p,
+      displayDate: p.paidAt ?? p.createdAt,
+      paymentType: p.paymentType ?? '',
+      method: p.method ?? '',
+      customerName: p.customerName ?? '',
+      unitNo: p.unitNo ?? '',
+      receiptNo: p.receiptNo ?? null,
+      notes: p.notes ?? null,
+    }));
 
+    const myBookings = customerId ? bookingsData.filter((b) => b.customerId === customerId) : [];
     const myBookingIds = new Set(myBookings.map((b) => b.id));
-    const myPayments = paymentsData
-      .filter((p) => p.customerId === customerId || (p.bookingId && myBookingIds.has(p.bookingId)))
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const myPayments = customerId
+      ? paymentsData
+          .filter((p) => p.customerId === customerId || (p.bookingId && myBookingIds.has(p.bookingId)))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      : [];
 
     setBookings(myBookings);
     setPayments(myPayments);
-    loadAccess();
+
+    // Access gating is disabled until there is a real backend rule/field for it.
+    setLatestAdminPaymentStatus("NONE");
+    setAccessEnabled(false);
+    setCredits(0);
   };
 
   useEffect(() => {
     loadData();
-  }, []);
-
-  useEffect(() => {
-    const onStorage = () => loadAccess();
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("focus", onStorage);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("focus", onStorage);
-    };
   }, [customerId]);
-
-  const tokenPendingBookings = useMemo(() => {
-    return bookings.filter(
-      (b) =>
-        !b.tokenPaymentId &&
-        ["PENDING"].includes(b.status)
-    );
-  }, [bookings]);
 
   const filteredPayments = useMemo(() => {
     if (!search.trim()) return payments;
@@ -85,7 +72,7 @@ export const CustomerPaymentsPage = () => {
       return (
         p.unitNo.toLowerCase().includes(q) ||
         p.customerName.toLowerCase().includes(q) ||
-        p.type.toLowerCase().includes(q) ||
+        p.paymentType.toLowerCase().includes(q) ||
         p.status.toLowerCase().includes(q) ||
         p.method.toLowerCase().includes(q)
       );
@@ -98,8 +85,8 @@ export const CustomerPaymentsPage = () => {
     setPage(1);
   }, [search, setPage]);
 
-  const downloadPaymentReceipt = (payment: Payment) => {
-    mockApi.downloadReceipt("payment", payment);
+  const downloadPaymentReceipt = (_payment: any) => {
+    toast({ title: 'Disabled', description: 'Receipt download is disabled until backend receipt API exists.', variant: 'destructive' });
   };
 
   return (
@@ -142,34 +129,6 @@ export const CustomerPaymentsPage = () => {
           </div>
         </Card>
 
-        {tokenPendingBookings.length > 0 && (
-          <Card className="p-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <IndianRupee className="w-5 h-5 text-primary" />
-                <h2 className="text-lg font-semibold">Token Payment Pending</h2>
-              </div>
-              <Badge className="w-fit" variant="secondary">{tokenPendingBookings.length}</Badge>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {tokenPendingBookings.map((b) => (
-                <div key={b.id} className="p-4 border rounded-lg flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="font-semibold">{b.unitNo}</p>
-                    <p className="text-sm text-muted-foreground">{b.projectName}</p>
-                    <p className="text-sm mt-2">Token: <span className="font-semibold text-primary">{formatPrice(b.tokenAmount)}</span></p>
-                    <p className="text-xs text-muted-foreground mt-1">Status: {b.status.replace(/_/g, " ")}</p>
-                  </div>
-                  <div className="text-xs text-muted-foreground sm:text-right">
-                    Awaiting admin approval
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-
         <Card className="p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
             <h2 className="text-lg font-semibold">Payment History</h2>
@@ -188,13 +147,13 @@ export const CustomerPaymentsPage = () => {
                   <div key={p.id} className="p-4 border rounded-lg flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">{p.type}</Badge>
+                        <Badge variant="outline" className="text-xs">{p.paymentType}</Badge>
                         <Badge variant={p.status === "Received" ? "default" : p.status === "Refunded" ? "secondary" : "outline"} className="text-xs">
                           {p.status}
                         </Badge>
                       </div>
                       <p className="font-semibold mt-2">{p.unitNo}</p>
-                      <p className="text-sm text-muted-foreground">{new Date(p.date).toLocaleString()} • {p.method}</p>
+                      <p className="text-sm text-muted-foreground">{new Date(p.displayDate).toLocaleString()} • {p.method}</p>
                       {p.receiptNo && (
                         <p className="text-xs text-muted-foreground mt-1">Receipt: {p.receiptNo}</p>
                       )}

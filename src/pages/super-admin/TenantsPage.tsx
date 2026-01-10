@@ -11,15 +11,29 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { useAppStore } from "@/stores/appStore";
+import { paymentsService, projectsService, superAdminUsersService } from "@/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 
+type TenantRow = {
+  id: string;
+  adminUserId: string;
+  name: string;
+  email: string;
+  domain?: string;
+  projects: number;
+  users: number;
+  subscription: string;
+  status: "Active" | "Suspended";
+  revenue: string;
+};
+
 export const TenantsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
-  const { tenants, addTenant, updateTenant, isLoading } = useAppStore();
+  const [tenants, setTenants] = useState<TenantRow[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
@@ -27,6 +41,87 @@ export const TenantsPage = () => {
   const [selectedTenant, setSelectedTenant] = useState<any>(null);
   const [newTenant, setNewTenant] = useState({ name: "", email: "", domain: "", subscription: "Business" });
   const [editTenant, setEditTenant] = useState({ name: "", email: "", domain: "", subscription: "Business" });
+
+  const formatMoney = (amount: number): string => {
+    if (!Number.isFinite(amount) || amount <= 0) return "₹0";
+    if (amount >= 10000000) return `₹${(amount / 10000000).toFixed(2)}Cr`;
+    return `₹${Math.round(amount).toLocaleString()}`;
+  };
+
+  const makeTenantId = (name: string, domain?: string): string => {
+    const base = (domain || name).trim().toLowerCase();
+    const slug = base
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 24);
+    const suffix = Date.now().toString(36);
+    return `tenant_${slug || 'new'}_${suffix}`;
+  };
+
+  const loadTenants = async () => {
+    setIsLoading(true);
+    try {
+      const [usersRes, projectsRes, paymentsRes] = await Promise.all([
+        superAdminUsersService.list(),
+        projectsService.list(),
+        paymentsService.list(),
+      ]);
+
+      const users = usersRes.data || [];
+      const projects = projectsRes.data || [];
+      const payments = paymentsRes.data || [];
+
+      const byTenant = new Map<string, typeof users>();
+      for (const u of users) {
+        if (u.role === 'SUPER_ADMIN') continue;
+        const arr = byTenant.get(u.tenantId) || [];
+        arr.push(u);
+        byTenant.set(u.tenantId, arr);
+      }
+
+      const projectCountByTenant = new Map<string, number>();
+      for (const p of projects) {
+        projectCountByTenant.set(p.tenantId, (projectCountByTenant.get(p.tenantId) || 0) + 1);
+      }
+
+      const revenueByTenant = new Map<string, number>();
+      for (const pay of payments) {
+        if (String(pay.status) !== 'Received') continue;
+        revenueByTenant.set(pay.tenantId, (revenueByTenant.get(pay.tenantId) || 0) + (pay.amount || 0));
+      }
+
+      const rows: TenantRow[] = [];
+
+      for (const [tenantId, tenantUsers] of byTenant.entries()) {
+        const admins = tenantUsers
+          .filter((u) => u.role === 'ADMIN')
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const admin = admins[0];
+        if (!admin) continue;
+
+        rows.push({
+          id: tenantId,
+          adminUserId: admin.id,
+          name: admin.name,
+          email: admin.email,
+          domain: undefined,
+          projects: projectCountByTenant.get(tenantId) || 0,
+          users: tenantUsers.length,
+          subscription: '—',
+          status: admin.isActive ? 'Active' : 'Suspended',
+          revenue: formatMoney(revenueByTenant.get(tenantId) || 0),
+        });
+      }
+
+      rows.sort((a, b) => a.name.localeCompare(b.name));
+      setTenants(rows);
+    } catch (e) {
+      setTenants([]);
+      toast.error(e instanceof Error ? e.message : 'Failed to load tenants');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const filteredTenants = tenants.filter(t => 
     t.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -39,20 +134,50 @@ export const TenantsPage = () => {
     setPage(1);
   }, [search, setPage]);
 
+  useEffect(() => {
+    void loadTenants();
+  }, []);
+
   const handleAddTenant = async () => {
     if (!newTenant.name || !newTenant.email) {
       toast.error("Please fill in all required fields");
       return;
     }
-    await addTenant({ name: newTenant.name, email: newTenant.email, projects: 0, users: 1, subscription: newTenant.subscription, status: "Active", revenue: "₹0" });
-    toast.success(`Success — Tenant "${newTenant.name}" created`);
-    setIsAddDialogOpen(false);
-    setNewTenant({ name: "", email: "", domain: "", subscription: "Business" });
+
+    setIsLoading(true);
+    try {
+      const tenantId = makeTenantId(newTenant.name, newTenant.domain);
+      const res = await superAdminUsersService.create({
+        name: newTenant.name,
+        email: newTenant.email,
+        role: 'ADMIN',
+        tenantId,
+      });
+      if (!res.success) throw new Error(res.message || 'Failed to create tenant');
+      toast.success(`Success — Tenant "${newTenant.name}" created`);
+      setIsAddDialogOpen(false);
+      setNewTenant({ name: "", email: "", domain: "", subscription: "Business" });
+      await loadTenants();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to create tenant');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleSuspend = (id: number | string) => {
-    updateTenant(id, { status: "Suspended" });
-    toast.success("Tenant suspended");
+  const handleToggleStatus = async (tenant: TenantRow) => {
+    setIsLoading(true);
+    try {
+      const nextActive = tenant.status !== 'Active';
+      const res = await superAdminUsersService.updateStatus(tenant.adminUserId, nextActive);
+      if (!res.success) throw new Error(res.message || 'Failed to update status');
+      toast.success(nextActive ? 'Tenant activated' : 'Tenant suspended');
+      await loadTenants();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update status');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleViewDetails = (tenant: any) => {
@@ -72,17 +197,7 @@ export const TenantsPage = () => {
   };
 
   const handleUpdateTenant = async () => {
-    if (!selectedTenant || !editTenant.name || !editTenant.email) {
-      toast.error("Please fill in all required fields");
-      return;
-    }
-    await updateTenant(selectedTenant.id, {
-      name: editTenant.name,
-      email: editTenant.email,
-      domain: editTenant.domain,
-      subscription: editTenant.subscription
-    });
-    toast.success(`Success — Tenant "${editTenant.name}" updated`);
+    toast.error('Editing tenant details is not supported by the backend yet');
     setIsEditDialogOpen(false);
     setSelectedTenant(null);
     setEditTenant({ name: "", email: "", domain: "", subscription: "Business" });
@@ -144,9 +259,9 @@ export const TenantsPage = () => {
                         <Edit className="w-4 h-4 mr-2" />
                         Edit
                       </DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleSuspend(tenant.id)}>
+                      <DropdownMenuItem className="text-destructive" onClick={() => handleToggleStatus(tenant)}>
                         <UserX className="w-4 h-4 mr-2" />
-                        Suspend
+                        {tenant.status === 'Active' ? 'Suspend' : 'Activate'}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -156,7 +271,10 @@ export const TenantsPage = () => {
           </TableBody>
         </Table>
         <PaginationBar page={page} totalPages={totalPages} onPageChange={setPage} />
-        {filteredTenants.length === 0 && (
+        {isLoading && (
+          <div className="p-6 text-center text-muted-foreground">Loading...</div>
+        )}
+        {!isLoading && filteredTenants.length === 0 && (
           <div className="p-12 text-center text-muted-foreground">No tenants yet. Create your first tenant to get started.</div>
         )}
       </motion.div>

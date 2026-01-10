@@ -6,12 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { mockApi } from "@/lib/mockApi";
 import { Unit } from "@/data/mockData";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { bookingsService, httpClient } from "@/api";
 
-type HoldRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+type HoldRequestStatus = "HOLD_REQUESTED" | "HOLD_CONFIRMED" | "CANCELLED";
 
 type HoldRequest = {
   id: string;
@@ -46,17 +46,22 @@ export const AdminPaymentsPage = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [bookingsData, unitsData] = await Promise.all([
-        mockApi.get<HoldRequest[]>("/bookings"),
-        mockApi.get<Unit[]>("/units"),
+      const [bookingsRes, unitsRes] = await Promise.all([
+        bookingsService.list(),
+        httpClient.get<Unit[]>("/units"),
       ]);
 
+      const bookingsData = ((bookingsRes as any)?.data ?? []) as any[];
+      const unitsData = ((unitsRes as any)?.data ?? []) as Unit[];
+
       const holdRequests = (bookingsData || [])
-        .filter((b) => ["PENDING", "APPROVED", "REJECTED"].includes(String((b as any).status)))
+        .filter((b) => ["HOLD_REQUESTED", "HOLD_CONFIRMED", "CANCELLED"].includes(String((b as any).status)))
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       setUnits(unitsData || []);
       setRequests(holdRequests);
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to load bookings/units', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -67,40 +72,39 @@ export const AdminPaymentsPage = () => {
   }, []);
 
   const approve = async (request: HoldRequest) => {
-    if (request.status !== "PENDING") return;
+    if (request.status !== "HOLD_REQUESTED") return;
+    try {
+      await bookingsService.updateStatus(request.id, {
+        status: 'HOLD_CONFIRMED',
+        approvedAt: new Date().toISOString(),
+      } as any);
 
-    await mockApi.patch<HoldRequest>("/bookings", request.id, {
-      status: "APPROVED" as const,
-      approvedAt: new Date().toISOString(),
-    } as any);
-
-    await mockApi.patch<Unit>("/units", request.unitId, {
-      status: "HOLD",
-    } as Partial<Unit>);
-
-    toast({ title: "Approved", description: "Unit is now on HOLD." });
-    await loadData();
+      toast({ title: "Approved", description: "Hold request approved." });
+      await loadData();
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to approve hold request', variant: 'destructive' });
+    }
   };
 
   const reject = async (request: HoldRequest) => {
-    if (request.status !== "PENDING") return;
+    if (request.status !== "HOLD_REQUESTED") return;
+    try {
+      await bookingsService.updateStatus(request.id, {
+        status: 'CANCELLED',
+        cancelledAt: new Date().toISOString(),
+        cancellationReason: 'Rejected by admin',
+      } as any);
 
-    await mockApi.patch<HoldRequest>("/bookings", request.id, {
-      status: "REJECTED" as const,
-      rejectedAt: new Date().toISOString(),
-    } as any);
-
-    await mockApi.patch<Unit>("/units", request.unitId, {
-      status: "AVAILABLE",
-    } as Partial<Unit>);
-
-    toast({ title: "Rejected", description: "Unit remains AVAILABLE." });
-    await loadData();
+      toast({ title: "Rejected", description: "Hold request rejected." });
+      await loadData();
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to reject hold request', variant: 'destructive' });
+    }
   };
 
   const statusBadge = (status: HoldRequestStatus) => {
-    if (status === "APPROVED") return <span className="status-badge status-available">APPROVED</span>;
-    if (status === "REJECTED") return <span className="status-badge status-lost">REJECTED</span>;
+    if (status === "HOLD_CONFIRMED") return <span className="status-badge status-available">APPROVED</span>;
+    if (status === "CANCELLED") return <span className="status-badge status-lost">REJECTED</span>;
     return <span className="status-badge status-booked">PENDING</span>;
   };
 
@@ -145,11 +149,11 @@ export const AdminPaymentsPage = () => {
                     <TableCell>{statusBadge(r.status)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button size="sm" variant="outline" disabled={r.status !== "PENDING" || loading} onClick={() => approve(r)}>
+                        <Button size="sm" variant="outline" disabled={r.status !== "HOLD_REQUESTED" || loading} onClick={() => approve(r)}>
                           <CheckCircle2 className="w-4 h-4 mr-2" />
                           Approve
                         </Button>
-                        <Button size="sm" variant="outline" disabled={r.status !== "PENDING" || loading} onClick={() => reject(r)}>
+                        <Button size="sm" variant="outline" disabled={r.status !== "HOLD_REQUESTED" || loading} onClick={() => reject(r)}>
                           <XCircle className="w-4 h-4 mr-2" />
                           Reject
                         </Button>

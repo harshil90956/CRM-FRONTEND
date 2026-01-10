@@ -9,8 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
-import { httpClient } from "@/api/httpClient";
 import type { AuthRole } from "@/stores/appStore";
+import { superAdminUsersService } from "@/api";
 
 const roleIcons = { SUPER_ADMIN: Shield, ADMIN: Briefcase, MANAGER: UserCheck, AGENT: Users, CUSTOMER: Users };
 
@@ -20,6 +20,7 @@ type RowUser = {
   email: string;
   role: AuthRole;
   tenantId?: string;
+  isActive: boolean;
 };
 
 export const GlobalUsersPage = () => {
@@ -27,14 +28,18 @@ export const GlobalUsersPage = () => {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [users, setUsers] = useState<RowUser[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     void (async () => {
+      setIsLoading(true);
       try {
-        const res = await httpClient.get<RowUser[]>('/staff');
-        setUsers(res.data || []);
+        const res = await superAdminUsersService.list();
+        setUsers((res.data || []) as any);
       } catch {
         setUsers([]);
+      } finally {
+        setIsLoading(false);
       }
     })();
   }, []);
@@ -101,13 +106,20 @@ export const GlobalUsersPage = () => {
                     <Badge variant="outline" className="gap-1"><Icon className="w-3 h-3" />{user.role.replace('_', ' ')}</Badge>
                   </TableCell>
                   <TableCell>{user.tenantId || "Platform"}</TableCell>
-                  <TableCell><span className="status-badge status-available">Active</span></TableCell>
+                  <TableCell>
+                    <span className={user.isActive ? "status-badge status-available" : "status-badge status-lost"}>
+                      {user.isActive ? "Active" : "Suspended"}
+                    </span>
+                  </TableCell>
                 </TableRow>
               );
             })}
           </TableBody>
         </Table>
         <PaginationBar page={page} totalPages={totalPages} onPageChange={setPage} />
+        {isLoading && (
+          <div className="p-6 text-center text-muted-foreground">Loading...</div>
+        )}
       </motion.div>
     </PageWrapper>
   );

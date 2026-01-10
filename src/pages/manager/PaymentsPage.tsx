@@ -41,11 +41,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
-import { mockApi } from "@/lib/mockApi";
+import { httpClient, paymentsService } from "@/api";
 import { cn } from "@/lib/utils";
 import { formatPrice } from "@/lib/unitHelpers";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { PaymentDetailDrawer } from "@/components/payments/PaymentDetailDrawer";
 
 interface Payment {
   id: string;
@@ -53,8 +54,8 @@ interface Payment {
   customerName?: string;
   unitId: string;
   amount: number;
-  type: string;
-  date: string;
+  paymentType: string;
+  displayDate: string;
   dueDate?: string;
   status: string;
   reminders?: Reminder[];
@@ -87,6 +88,8 @@ export const ManagerPaymentsPage = () => {
   const [scheduledDate, setScheduledDate] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [expandedPayments, setExpandedPayments] = useState<Set<string>>(new Set());
+  const [paymentDrawerOpen, setPaymentDrawerOpen] = useState(false);
+  const [paymentDrawerId, setPaymentDrawerId] = useState<string | null>(null);
   
   // Filter states
   const [showOverdueOnly, setShowOverdueOnly] = useState(false);
@@ -105,17 +108,30 @@ export const ManagerPaymentsPage = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [paymentsData, unitsData] = await Promise.all([
-        mockApi.get<Payment[]>("/payments"),
-        mockApi.get<any[]>("/units"),
+      const [paymentsRes, unitsRes] = await Promise.all([
+        paymentsService.list(),
+        httpClient.get<any[]>("/units"),
       ]);
-      setPayments(paymentsData);
-      setUnits(unitsData);
+
+      const rawPayments = (((paymentsRes as any)?.data ?? []) as any[]);
+      setPayments(
+        rawPayments.map((p: any) => ({
+          ...p,
+          displayDate: p.paidAt ?? p.createdAt,
+          paymentType: p.paymentType ?? '',
+        })) as Payment[],
+      );
+      setUnits((((unitsRes as any)?.data ?? []) as any[]));
     } catch (error) {
       console.error("Failed to load data:", error);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const openPayment = (paymentId: string) => {
+    setPaymentDrawerId(paymentId);
+    setPaymentDrawerOpen(true);
   };
 
   const getUnitInfo = (unitId: string) => {
@@ -138,11 +154,11 @@ export const ManagerPaymentsPage = () => {
     
     // Apply advanced filters
     let matchesDateRange = true;
-    if (dateRangeFilter.start && p.date) {
-      matchesDateRange = new Date(p.date) >= new Date(dateRangeFilter.start);
+    if (dateRangeFilter.start && p.displayDate) {
+      matchesDateRange = new Date(p.displayDate) >= new Date(dateRangeFilter.start);
     }
-    if (dateRangeFilter.end && p.date) {
-      matchesDateRange = matchesDateRange && new Date(p.date) <= new Date(dateRangeFilter.end);
+    if (dateRangeFilter.end && p.displayDate) {
+      matchesDateRange = matchesDateRange && new Date(p.displayDate) <= new Date(dateRangeFilter.end);
     }
     
     let matchesAmountRange = true;
@@ -176,52 +192,24 @@ export const ManagerPaymentsPage = () => {
 
   const submitReminder = async () => {
     if (!selectedPayment) return;
-    
-    setIsSending(true);
-    try {
-      await mockApi.createPaymentReminder(selectedPayment.id, {
-        type: reminderType,
-        message: reminderMessage,
-        sendNow: sendNow,
-        scheduledAt: sendNow ? undefined : scheduledDate,
-      });
-      
-      toast({
-        title: sendNow ? "Reminder Sent" : "Reminder Scheduled",
-        description: sendNow 
-          ? `${reminderType.toUpperCase()} reminder sent successfully.`
-          : `Reminder scheduled for ${new Date(scheduledDate).toLocaleString()}.`,
-      });
-      
-      await loadData();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to send reminder. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSending(false);
-      setReminderDialogOpen(false);
-      setSelectedPayment(null);
-    }
+
+    toast({
+      title: 'Disabled',
+      description: 'Payment reminders are disabled until backend reminder endpoint exists.',
+      variant: 'destructive',
+    });
+
+    setIsSending(false);
+    setReminderDialogOpen(false);
+    setSelectedPayment(null);
   };
 
   const handleRunScheduledReminders = async () => {
-    try {
-      const count = await mockApi.runScheduledReminders();
-      toast({
-        title: "Scheduled Reminders Processed",
-        description: `${count} scheduled reminder(s) have been marked as sent.`,
-      });
-      await loadData();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to process reminders.",
-        variant: "destructive",
-      });
-    }
+    toast({
+      title: 'Disabled',
+      description: 'Scheduled reminders are disabled until backend reminder endpoint exists.',
+      variant: 'destructive',
+    });
   };
 
   const toggleExpanded = (paymentId: string) => {
@@ -315,6 +303,14 @@ export const ManagerPaymentsPage = () => {
             </div>
           )}
 
+      <PaymentDetailDrawer
+        open={paymentDrawerOpen}
+        onOpenChange={setPaymentDrawerOpen}
+        paymentId={paymentDrawerId}
+        role="manager"
+        onUpdated={loadData}
+      />
+
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 mb-6">
             <div className="relative flex-1 min-w-0 sm:max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -351,14 +347,17 @@ export const ManagerPaymentsPage = () => {
                   <Collapsible key={payment.id} asChild>
                     <>
                       <TableRow className="hover:bg-table-row-hover">
-                        <TableCell>
+                        <TableCell onClick={() => openPayment(payment.id)} className="cursor-pointer">
                           {payment.reminders && payment.reminders.length > 0 && (
                             <CollapsibleTrigger asChild>
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
                                 className="h-6 w-6"
-                                onClick={() => toggleExpanded(payment.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleExpanded(payment.id);
+                                }}
                               >
                                 {expandedPayments.has(payment.id) ? (
                                   <ChevronUp className="w-4 h-4" />
@@ -369,13 +368,13 @@ export const ManagerPaymentsPage = () => {
                             </CollapsibleTrigger>
                           )}
                         </TableCell>
-                        <TableCell className="font-medium">
+                        <TableCell className="font-medium cursor-pointer" onClick={() => openPayment(payment.id)}>
                           {payment.customerName || payment.customerId}
                         </TableCell>
-                        <TableCell>{getUnitInfo(payment.unitId)}</TableCell>
-                        <TableCell className="font-semibold">{formatPrice(payment.amount)}</TableCell>
-                        <TableCell><Badge variant="outline">{payment.type}</Badge></TableCell>
-                        <TableCell className="text-muted-foreground">{payment.date}</TableCell>
+                        <TableCell className="cursor-pointer" onClick={() => openPayment(payment.id)}>{getUnitInfo(payment.unitId)}</TableCell>
+                        <TableCell className="font-semibold cursor-pointer" onClick={() => openPayment(payment.id)}>{formatPrice(payment.amount)}</TableCell>
+                        <TableCell className="cursor-pointer" onClick={() => openPayment(payment.id)}><Badge variant="outline">{payment.paymentType}</Badge></TableCell>
+                        <TableCell className="text-muted-foreground cursor-pointer" onClick={() => openPayment(payment.id)}>{payment.displayDate}</TableCell>
                         <TableCell>
                           <span className={cn("status-badge", 
                             payment.status === "Received" ? "status-available" : 
@@ -388,7 +387,7 @@ export const ManagerPaymentsPage = () => {
                             <Button 
                               variant="outline" 
                               size="sm"
-                              onClick={() => handleSendReminder(payment)}
+                              onClick={(e) => { e.stopPropagation(); handleSendReminder(payment); }}
                               className="gap-1"
                             >
                               <Bell className="w-3.5 h-3.5" />
@@ -678,7 +677,7 @@ export const ManagerPaymentsPage = () => {
                           </div>
                           <div>
                             <span className="text-muted-foreground">Payment Type:</span>
-                            <span className="ml-2 font-medium">{payment.type}</span>
+                            <span className="ml-2 font-medium">{payment.paymentType}</span>
                           </div>
                         </div>
                       </div>
