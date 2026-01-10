@@ -32,7 +32,6 @@ import { ReportsPage } from "./pages/admin/ReportsPage";
 import { ConstructionPage } from "./pages/admin/ConstructionPage";
 import { AdminSettingsPage } from "./pages/admin/SettingsPage";
 import { AdminBookingsPage } from "./pages/admin/BookingsPage";
-import { ReviewsModerationPage } from "./pages/admin/ReviewsModerationPage";
 
 // Manager Pages
 import { ManagerDashboard } from "./pages/manager/ManagerDashboard";
@@ -42,7 +41,6 @@ import { ManagerTeamPage } from "./pages/manager/TeamPage";
 import { ManagerPaymentsPage } from "./pages/manager/PaymentsPage";
 import { ManagerReportsPage } from "./pages/manager/ReportsPage";
 import { ManagerBookingsPage } from "./pages/manager/BookingsPage";
-import { ManagerReviewsDashboard } from "./pages/manager/ManagerReviewsDashboard";
 
 // Agent Pages
 import { AgentDashboard } from "./pages/agent/AgentDashboard";
@@ -61,7 +59,6 @@ import { CustomerContactPage } from "./pages/customer/ContactPage";
 import { CustomerProfilePage } from "./pages/customer/ProfilePage";
 import { CustomerAuthPage } from "./pages/customer/AuthPage";
 import { CustomerBookingsPage } from "./pages/customer/BookingsPage";
-import { MyReviewsPage } from "./pages/customer/MyReviewsPage";
 import { CustomerPaymentsPage } from "./pages/customer/PaymentsPage";
 
 // Profile & Support Pages
@@ -101,7 +98,6 @@ const App = () => (
               <Route path="finance" element={<FinancePage />} />
               <Route path="payments" element={<AdminPaymentsPage />} />
               <Route path="users" element={<UsersPage />} />
-              <Route path="reviews" element={<ReviewsModerationPage />} />
               <Route path="reports" element={<ReportsPage />} />
               <Route path="construction" element={<ConstructionPage />} />
               <Route path="settings" element={<AdminSettingsPage />} />
@@ -115,7 +111,6 @@ const App = () => (
               <Route path="units" element={<ManagerUnitsPage />} />
               <Route path="team" element={<ManagerTeamPage />} />
               <Route path="payments" element={<ManagerPaymentsPage />} />
-              <Route path="reviews" element={<ManagerReviewsDashboard />} />
               <Route path="reports" element={<ManagerReportsPage />} />
               <Route path="bookings" element={<ManagerBookingsPage />} />
             </Route>
@@ -140,7 +135,6 @@ const App = () => (
             <Route path="/customer/auth" element={<CustomerAuthPage />} />
             <Route path="/customer/bookings" element={<CustomerBookingsPage />} />
             <Route path="/customer/payments" element={<CustomerPaymentsPage />} />
-            <Route path="/customer/reviews" element={<MyReviewsPage />} />
 
             {/* Profile & Support Routes */}
             <Route path="/profile" element={<DashboardLayout role="admin" />}>

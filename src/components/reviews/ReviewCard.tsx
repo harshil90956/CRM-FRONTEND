@@ -11,6 +11,8 @@ interface ReviewCardProps {
   review: Review;
   showStatus?: boolean;
   showActions?: boolean;
+  currentUserId?: string;
+  highlight?: boolean;
   onEdit?: (review: Review) => void;
   onDelete?: (reviewId: string) => void;
   onApprove?: (reviewId: string) => void;
@@ -21,6 +23,8 @@ export const ReviewCard = ({
   review,
   showStatus = false,
   showActions = false,
+  currentUserId,
+  highlight = false,
   onEdit,
   onDelete,
   onApprove,
@@ -32,8 +36,13 @@ export const ReviewCard = ({
     rejected: "bg-destructive/10 text-destructive border-destructive/20",
   };
 
+  const isMine =
+    !!currentUserId &&
+    (String((review as any)?.customerId || "") === String(currentUserId) ||
+      String((review as any)?.agentId || "") === String(currentUserId));
+
   return (
-    <Card className="p-4">
+    <Card className={highlight ? "p-4 border-primary/40 bg-primary/5" : "p-4"}>
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
@@ -55,6 +64,11 @@ export const ReviewCard = ({
             <span className="text-sm text-muted-foreground">
               for {review.targetName}
             </span>
+            {isMine && (
+              <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
+                Your Review
+              </Badge>
+            )}
             {showStatus && (
               <Badge variant="outline" className={statusColors[review.status]}>
                 {review.status}
@@ -63,6 +77,10 @@ export const ReviewCard = ({
           </div>
 
           <p className="text-sm text-foreground/80 mb-3">{review.comment}</p>
+
+          {highlight && isMine && (
+            <p className="text-xs text-muted-foreground mb-3">This review was added by you</p>
+          )}
 
           {review.images && review.images.length > 0 && (
             <div className="flex gap-2">

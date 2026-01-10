@@ -323,6 +323,7 @@ export interface Review {
   targetId: string;
   targetName: string;
   customerId: string;
+  agentId?: string;
   customerName: string;
   rating: number;
   comment: string;

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ReviewList } from "@/components/reviews/ReviewList";
 import { Review } from "@/data/mockData";
-import { mockApi } from "@/lib/mockApi";
+import { reviewsService } from "@/api";
 import { toast } from "sonner";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
@@ -16,80 +16,18 @@ import { PaginationBar } from "@/components/common/PaginationBar";
 export const ReviewsModerationPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   
-  // Local mock reviews data - 4-5 records
-  const [reviews, setReviews] = useState<Review[]>([
-    {
-      id: 'rev_1',
-      type: 'property',
-      targetId: 'proj_1',
-      targetName: 'Green Valley',
-      customerId: 'u_cust_1',
-      customerName: 'Arjun Nair',
-      rating: 5,
-      comment: 'Excellent project with great amenities. Very satisfied with the purchase.',
-      status: 'approved',
-      tenantId: 't_soundarya',
-      createdAt: '2024-01-18'
-    },
-    {
-      id: 'rev_2',
-      type: 'agent',
-      targetId: 'u_agent_1',
-      targetName: 'Rahul Verma',
-      customerId: 'u_cust_2',
-      customerName: 'Sneha Reddy',
-      rating: 5,
-      comment: 'Very helpful and professional. Made the entire process smooth.',
-      status: 'pending',
-      tenantId: 't_soundarya',
-      createdAt: '2024-01-16'
-    },
-    {
-      id: 'rev_3',
-      type: 'property',
-      targetId: 'proj_2',
-      targetName: 'Sky Heights',
-      customerId: 'u_cust_3',
-      customerName: 'Vikram Mehta',
-      rating: 4,
-      comment: 'Good location and construction quality. Slightly delayed possession.',
-      status: 'approved',
-      tenantId: 't_prestige',
-      createdAt: '2024-01-14'
-    },
-    {
-      id: 'rev_4',
-      type: 'property',
-      targetId: 'proj_3',
-      targetName: 'Palm Residency',
-      customerId: 'u_cust_4',
-      customerName: 'Divya Pillai',
-      rating: 5,
-      comment: 'Premium project with excellent sea view. Worth the investment.',
-      status: 'pending',
-      tenantId: 't_prestige',
-      createdAt: '2024-01-12'
-    },
-    {
-      id: 'rev_5',
-      type: 'agent',
-      targetId: 'u_agent_2',
-      targetName: 'Neha Gupta',
-      customerId: 'u_cust_5',
-      customerName: 'Rajesh Kumar',
-      rating: 3,
-      comment: 'Average service. Could be more proactive in providing updates.',
-      status: 'rejected',
-      tenantId: 't_soundarya',
-      createdAt: '2024-01-10'
-    },
-  ]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const fetchReviews = async () => {
-    // Data is already in local state, no need to fetch from API
-    setIsLoading(false);
+    setIsLoading(true);
+    try {
+      const res = await reviewsService.adminList();
+      setReviews(((res as any)?.data ?? []) as Review[]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -103,42 +41,42 @@ export const ReviewsModerationPage = () => {
     : "0.0";
 
   const handleApprove = async (id: string) => {
-    // Update local state immediately
-    setReviews(prev => prev.map(r => r.id === id ? { ...r, status: "approved" } : r));
+    await reviewsService.adminApprove(id);
     toast.success("Review approved");
+    fetchReviews();
   };
 
   const handleReject = async (id: string) => {
-    // Update local state immediately
-    setReviews(prev => prev.map(r => r.id === id ? { ...r, status: "rejected" } : r));
+    await reviewsService.adminReject(id);
     toast.success("Review rejected");
+    fetchReviews();
   };
 
   const handleDelete = async (id: string) => {
-    // Update local state immediately
-    setReviews(prev => prev.filter(r => r.id !== id));
+    await reviewsService.adminDelete(id);
     toast.success("Review deleted");
+    fetchReviews();
   };
 
   const handleBulkApprove = async () => {
-    // Update local state immediately
-    setReviews(prev => prev.map(r => selectedIds.includes(r.id) ? { ...r, status: "approved" } : r));
+    await Promise.all(selectedIds.map((id) => reviewsService.adminApprove(id)));
     toast.success(`${selectedIds.length} reviews approved`);
     setSelectedIds([]);
+    fetchReviews();
   };
 
   const handleBulkReject = async () => {
-    // Update local state immediately
-    setReviews(prev => prev.map(r => selectedIds.includes(r.id) ? { ...r, status: "rejected" } : r));
+    await Promise.all(selectedIds.map((id) => reviewsService.adminReject(id)));
     toast.success(`${selectedIds.length} reviews rejected`);
     setSelectedIds([]);
+    fetchReviews();
   };
 
   const handleBulkDelete = async () => {
-    // Update local state immediately
-    setReviews(prev => prev.filter(r => !selectedIds.includes(r.id)));
+    await Promise.all(selectedIds.map((id) => reviewsService.adminDelete(id)));
     toast.success(`${selectedIds.length} reviews deleted`);
     setSelectedIds([]);
+    fetchReviews();
   };
 
   const toggleSelect = (id: string) => {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Search, MapPin, Building2, Heart, ChevronRight, ArrowLeft, Phone, Mail, Calendar } from "lucide-react";
+import { Search, MapPin, Building2, Heart, ChevronRight, ArrowLeft, Phone, Mail, Calendar, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -10,12 +10,82 @@ import { Progress } from "@/components/ui/progress";
 import { projects } from "@/data/mockData";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { ReviewModal } from "@/components/reviews/ReviewModal";
+import { reviewsService } from "@/api";
+import { useAppStore } from "@/stores/appStore";
+import { RatingStars } from "@/components/reviews/RatingStars";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ReviewForm } from "@/components/reviews/ReviewForm";
+import { ProjectReviewsSection } from "@/components/reviews/ProjectReviewsSection";
 
 export const CustomerProjectsPage = () => {
+  const { currentUser } = useAppStore();
   const [search, setSearch] = useState("");
   const [searchParams] = useSearchParams();
   const [selectedProject, setSelectedProject] = useState<any>(null);
   const navigate = useNavigate();
+
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<{ id: string; name: string } | null>(null);
+  const [approvedCountByProjectId, setApprovedCountByProjectId] = useState<Map<string, number>>(new Map());
+  const [publicTotalForSelectedProject, setPublicTotalForSelectedProject] = useState<number | null>(null);
+  const [submittedReviewByProjectId, setSubmittedReviewByProjectId] = useState<Map<string, { status: "pending" | "approved" }>>(new Map());
+  const [myReviewByProjectId, setMyReviewByProjectId] = useState<Map<string, { id?: string; rating?: number; comment?: string; status?: string }>>(new Map());
+  const [myReviewOpen, setMyReviewOpen] = useState(false);
+  const [myReviewView, setMyReviewView] = useState<{ projectId: string; projectName: string } | null>(null);
+  const [myReviewMode, setMyReviewMode] = useState<"view" | "edit">("view");
+
+  const getMyReviewStorageKey = () => {
+    const userId = String((currentUser as any)?.id || "");
+    return `reviews:my_review:customer:${userId}:projects`;
+  };
+
+  const loadMyReviewsFromStorage = () => {
+    try {
+      const key = getMyReviewStorageKey();
+      if (!key) return;
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, { id?: string; rating?: number; comment?: string; status?: string }>;
+      const next = new Map<string, { id?: string; rating?: number; comment?: string; status?: string }>();
+      Object.entries(parsed || {}).forEach(([k, v]) => {
+        next.set(String(k), v);
+      });
+      setMyReviewByProjectId(next);
+    } catch {
+      setMyReviewByProjectId(new Map());
+    }
+  };
+
+  const persistMyReviewsToStorage = (next: Map<string, { id?: string; rating?: number; comment?: string; status?: string }>) => {
+    try {
+      const key = getMyReviewStorageKey();
+      if (!key) return;
+      const obj: Record<string, any> = {};
+      next.forEach((v, k) => {
+        obj[String(k)] = v;
+      });
+      sessionStorage.setItem(key, JSON.stringify(obj));
+    } catch {
+      // ignore
+    }
+  };
+
+  const loadApprovedCounts = async () => {
+    try {
+      const res = await reviewsService.managerList();
+      const rows = (((res as any)?.data ?? []) as any[]).filter((r) => r?.type === 'project' && r?.status === 'approved');
+      const next = new Map<string, number>();
+      rows.forEach((r) => {
+        const key = String(r.targetId || '');
+        if (!key) return;
+        next.set(key, (next.get(key) ?? 0) + 1);
+      });
+      setApprovedCountByProjectId(next);
+    } catch {
+      setApprovedCountByProjectId(new Map());
+    }
+  };
 
   useEffect(() => {
     const projectId = searchParams.get('project');
@@ -23,11 +93,21 @@ export const CustomerProjectsPage = () => {
       const project = projects.find(p => p.id === projectId);
       if (project) {
         setSelectedProject(project);
+        setPublicTotalForSelectedProject(null);
       }
     } else {
       setSelectedProject(null);
+      setPublicTotalForSelectedProject(null);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    loadApprovedCounts();
+  }, []);
+
+  useEffect(() => {
+    loadMyReviewsFromStorage();
+  }, [currentUser?.id]);
 
   const handleBackToList = () => {
     setSelectedProject(null);
@@ -47,6 +127,45 @@ export const CustomerProjectsPage = () => {
       // Navigate to contact page with project info for getting details
       navigate(`/customer/contact?project=${selectedProject.id}&action=get-details`);
     }
+  };
+
+  const handleWriteReview = (project: any) => {
+    if (!currentUser?.id) {
+      navigate('/customer/auth');
+      return;
+    }
+    setReviewTarget({ id: project.id, name: project.name });
+    setReviewModalOpen(true);
+  };
+
+  const getSubmittedStatus = (projectId: string): "pending" | "approved" | null => {
+    return submittedReviewByProjectId.get(projectId)?.status ?? null;
+  };
+
+  const getMyReview = (projectId: string) => {
+    return myReviewByProjectId.get(projectId) ?? null;
+  };
+
+  const openMyReview = (projectId: string, projectName: string) => {
+    setMyReviewView({ projectId: String(projectId), projectName: String(projectName) });
+    setMyReviewMode("view");
+    setMyReviewOpen(true);
+  };
+
+  const openMyReviewEdit = (projectId: string, projectName: string) => {
+    setMyReviewView({ projectId: String(projectId), projectName: String(projectName) });
+    setMyReviewMode("edit");
+    setMyReviewOpen(true);
+  };
+
+  const extractReviewFields = (raw: any): { id?: string; rating: number; comment: string } | null => {
+    if (!raw) return null;
+    // support shapes like: {data: review}, {review: review}, {data:{review}}, or raw review
+    const candidate = raw?.review ?? raw?.data?.review ?? raw?.data ?? raw;
+    const id = candidate?.id ?? raw?.id;
+    const rating = Number(candidate?.rating ?? raw?.rating ?? 0);
+    const comment = String(candidate?.comment ?? raw?.comment ?? "");
+    return { id: id ? String(id) : undefined, rating, comment };
   };
 
   const filteredProjects = projects.filter(p => 
@@ -110,6 +229,12 @@ export const CustomerProjectsPage = () => {
                     <Badge variant={selectedProject.status === 'Active' ? 'default' : 'secondary'}>
                       {selectedProject.status}
                     </Badge>
+                    <div className="flex items-center gap-1">
+                      <Star className="w-4 h-4" />
+                      <span>
+                        {(publicTotalForSelectedProject ?? (approvedCountByProjectId.get(String(selectedProject.id)) ?? 0))} reviews
+                      </span>
+                    </div>
                   </div>
                 </div>
                 
@@ -151,6 +276,47 @@ export const CustomerProjectsPage = () => {
                     Get Details
                   </Button>
                 </div>
+
+                <div className="pt-2 flex flex-wrap items-center gap-3">
+                  {Boolean(getMyReview(String(selectedProject.id))?.id) ? (
+                    <Button
+                      variant="secondary"
+                      size="lg"
+                      onClick={() => openMyReviewEdit(String(selectedProject.id), String(selectedProject.name))}
+                    >
+                      <Star className="w-4 h-4 mr-2" />
+                      Edit Review
+                    </Button>
+                  ) : (
+                    <Button variant="secondary" size="lg" onClick={() => handleWriteReview(selectedProject)}>
+                      <Star className="w-4 h-4 mr-2" />
+                      Write a Review
+                    </Button>
+                  )}
+
+                  {Boolean(
+                    getMyReview(String(selectedProject.id))?.id ||
+                      getMyReview(String(selectedProject.id))?.rating ||
+                      getMyReview(String(selectedProject.id))?.comment
+                  ) && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="lg"
+                      onClick={() => openMyReview(String(selectedProject.id), String(selectedProject.name))}
+                    >
+                      View Your Review
+                    </Button>
+                  )}
+                </div>
+
+                <ProjectReviewsSection
+                  type="project"
+                  targetId={String(selectedProject.id)}
+                  tenantId={String((currentUser as any)?.tenantId || "")}
+                  currentUserId={String((currentUser as any)?.id || "")}
+                  onMeta={(meta) => setPublicTotalForSelectedProject(Number(meta?.total) || 0)}
+                />
               </div>
             </div>
             
@@ -258,6 +424,11 @@ export const CustomerProjectsPage = () => {
                         <MapPin className="w-3.5 h-3.5" />
                         {project.location}
                       </div>
+
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                        <Star className="w-4 h-4" />
+                        <span>{approvedCountByProjectId.get(String(project.id)) ?? 0} reviews</span>
+                      </div>
                       
                       <div className="mb-4">
                         <div className="flex justify-between text-sm mb-1">
@@ -287,10 +458,40 @@ export const CustomerProjectsPage = () => {
                           <p className="text-xs text-muted-foreground">Starting from</p>
                           <p className="text-lg font-semibold text-primary">{project.priceRange.split(' - ')[0]}</p>
                         </div>
-                        <Button onClick={() => navigate(`/customer/projects?project=${project.id}`)}>
-                          View Details
-                          <ChevronRight className="w-4 h-4 ml-1" />
-                        </Button>
+                        <div className="flex flex-col items-end">
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            {Boolean(getMyReview(String(project.id))?.id) ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openMyReviewEdit(String(project.id), String(project.name))}
+                              >
+                                <Star className="w-4 h-4 mr-1" />
+                                Edit Review
+                              </Button>
+                            ) : (
+                              <Button variant="outline" size="sm" onClick={() => handleWriteReview(project)}>
+                                <Star className="w-4 h-4 mr-1" />
+                                Write Review
+                              </Button>
+                            )}
+
+                            <Button size="sm" onClick={() => navigate(`/customer/projects?project=${project.id}`)}>
+                              View Details
+                              <ChevronRight className="w-4 h-4 ml-1" />
+                            </Button>
+                          </div>
+
+                          {Boolean(getMyReview(String(project.id))?.id) && (
+                            <button
+                              type="button"
+                              className="mt-1 text-xs font-normal text-muted-foreground hover:underline"
+                              onClick={() => openMyReview(String(project.id), String(project.name))}
+                            >
+                              view your review
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </Card>
@@ -302,6 +503,104 @@ export const CustomerProjectsPage = () => {
           </div>
         )}
       </main>
+
+      {reviewTarget && currentUser?.id && (
+        <ReviewModal
+          open={reviewModalOpen}
+          onOpenChange={setReviewModalOpen}
+          target={{ type: "project", targetId: reviewTarget.id, targetName: reviewTarget.name }}
+          customerId={currentUser.id}
+          customerName={currentUser.name || ""}
+          tenantId={(currentUser as any)?.tenantId || ""}
+          onSubmitted={(createdOrUpdated) => {
+            setSubmittedReviewByProjectId((prev) => {
+              const next = new Map(prev);
+              next.set(String(reviewTarget.id), { status: "approved" });
+              return next;
+            });
+
+            const extracted = extractReviewFields(createdOrUpdated);
+            if (extracted) {
+              const { id, rating, comment } = extracted;
+              setMyReviewByProjectId((prev) => {
+                const next = new Map(prev);
+                next.set(String(reviewTarget.id), { id, rating, comment, status: "approved" });
+                persistMyReviewsToStorage(next);
+                return next;
+              });
+            }
+            loadApprovedCounts();
+          }}
+        />
+      )}
+
+      <Dialog
+        open={myReviewOpen}
+        onOpenChange={(open) => {
+          setMyReviewOpen(open);
+          if (!open) setMyReviewMode("view");
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Your Review</DialogTitle>
+          </DialogHeader>
+          {myReviewView && myReviewMode === "view" && (
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm text-muted-foreground">{myReviewView.projectName}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <RatingStars rating={Number(getMyReview(String(myReviewView.projectId))?.rating ?? 0)} size="sm" />
+                <span className="text-xs text-muted-foreground">Status: Approved</span>
+              </div>
+              <p className="text-sm text-foreground/80">{String(getMyReview(String(myReviewView.projectId))?.comment ?? "") || "No comment provided"}</p>
+
+              {Boolean(getMyReview(String(myReviewView.projectId))?.id) && (
+                <div className="flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setMyReviewMode("edit")}>
+                    Edit Review
+                  </Button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">This review is now visible in public reviews.</p>
+            </div>
+          )}
+
+          {myReviewView && myReviewMode === "edit" && currentUser?.id && (
+            <ReviewForm
+              reviewType="project"
+              targetId={String(myReviewView.projectId)}
+              targetName={String(myReviewView.projectName)}
+              customerId={currentUser.id}
+              customerName={currentUser.name || ""}
+              tenantId={(currentUser as any)?.tenantId || ""}
+              editData={{
+                id: String(getMyReview(String(myReviewView.projectId))?.id || ""),
+                rating: Number(getMyReview(String(myReviewView.projectId))?.rating ?? 0),
+                comment: String(getMyReview(String(myReviewView.projectId))?.comment ?? ""),
+              }}
+              cancelLabel="Cancel"
+              submitLabel="Save Changes"
+              onCancel={() => setMyReviewMode("view")}
+              onSuccess={(updated) => {
+                const extracted = extractReviewFields(updated);
+                if (extracted) {
+                  const { id, rating, comment } = extracted;
+                  setMyReviewByProjectId((prev) => {
+                    const next = new Map(prev);
+                    next.set(String(myReviewView.projectId), { id, rating, comment, status: "approved" });
+                    persistMyReviewsToStorage(next);
+                    return next;
+                  });
+                }
+                setMyReviewMode("view");
+                setMyReviewOpen(false);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
