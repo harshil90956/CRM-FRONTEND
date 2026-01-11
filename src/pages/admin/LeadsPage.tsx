@@ -134,6 +134,7 @@ export const LeadsPage = () => {
 
   const [newLeadFields, setNewLeadFields] = useState<LeadField[]>([]);
   const [editLeadFields, setEditLeadFields] = useState<LeadField[]>([]);
+  const [listLeadFields, setListLeadFields] = useState<LeadField[]>([]);
   const [newDynamicData, setNewDynamicData] = useState<Record<string, any>>({});
   const [editDynamicData, setEditDynamicData] = useState<Record<string, any>>({});
 
@@ -603,6 +604,61 @@ export const LeadsPage = () => {
     setCurrentPage(1);
   }, [searchTerm, statusFilter, priorityFilter, sourceFilter, projectFilter, assignedFilter, dateRange, setCurrentPage]);
 
+  useEffect(() => {
+    const projectId = projectFilter === 'all' ? null : projectFilter;
+    if (!projectId) {
+      setListLeadFields([]);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const res = await leadsService.listLeadFields(projectId);
+        if (!res.success) {
+          setListLeadFields([]);
+          return;
+        }
+        const fields = (res.data || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        setListLeadFields(fields);
+      } catch {
+        setListLeadFields([]);
+      }
+    })();
+  }, [projectFilter]);
+
+  const combinedListFields = useMemo<LeadField[]>(() => {
+    if (projectFilter === 'all') return [];
+
+    const base = (listLeadFields || []).slice();
+    const existing = new Set(base.map((f) => String(f.key)));
+    const inferredKeys = new Set<string>();
+
+    filteredLeads.forEach((l) => {
+      const dyn = (l as any)?.dynamicData;
+      if (!dyn || typeof dyn !== 'object') return;
+      Object.keys(dyn).forEach((k) => {
+        if (!existing.has(k)) inferredKeys.add(k);
+      });
+    });
+
+    const inferred = Array.from(inferredKeys)
+      .sort((a, b) => a.localeCompare(b))
+      .map((k, idx) => ({
+        id: `inferred_${k}`,
+        key: k,
+        label: k,
+        type: 'TEXT',
+        required: false,
+        order: (base.length + idx) as any,
+        createdAt: '',
+        updatedAt: '',
+        projectId: projectFilter,
+        options: null,
+      } as any as LeadField));
+
+    return base.concat(inferred);
+  }, [filteredLeads, listLeadFields, projectFilter]);
+
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selectedIds);
     if (newSelected.has(id)) {
@@ -969,18 +1025,30 @@ export const LeadsPage = () => {
               onCheckedChange={toggleSelectAll}
             />
           </TableHead>
-          <TableHead className="font-semibold">
-            <div className="flex items-center gap-1">Name <ArrowUpDown className="w-3 h-3" /></div>
-          </TableHead>
-          <TableHead className="font-semibold">Contact</TableHead>
-          <TableHead className="font-semibold">Project</TableHead>
-          <TableHead className="font-semibold">Status</TableHead>
-          <TableHead className="font-semibold">Priority</TableHead>
-          <TableHead className="font-semibold">
-            <div className="flex items-center gap-1">Budget <ArrowUpDown className="w-3 h-3" /></div>
-          </TableHead>
-          <TableHead className="font-semibold">Source</TableHead>
-          <TableHead className="text-right font-semibold">Actions</TableHead>
+          {(projectFilter !== 'all' && combinedListFields.length > 0) ? (
+            <>
+              {combinedListFields.map((f) => (
+                <TableHead key={f.id} className="font-semibold">{f.label}</TableHead>
+              ))}
+              <TableHead className="font-semibold">Project</TableHead>
+              <TableHead className="text-right font-semibold">Actions</TableHead>
+            </>
+          ) : (
+            <>
+              <TableHead className="font-semibold">
+                <div className="flex items-center gap-1">Name <ArrowUpDown className="w-3 h-3" /></div>
+              </TableHead>
+              <TableHead className="font-semibold">Contact</TableHead>
+              <TableHead className="font-semibold">Project</TableHead>
+              <TableHead className="font-semibold">Status</TableHead>
+              <TableHead className="font-semibold">Priority</TableHead>
+              <TableHead className="font-semibold">
+                <div className="flex items-center gap-1">Budget <ArrowUpDown className="w-3 h-3" /></div>
+              </TableHead>
+              <TableHead className="font-semibold">Source</TableHead>
+              <TableHead className="text-right font-semibold">Actions</TableHead>
+            </>
+          )}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -996,39 +1064,88 @@ export const LeadsPage = () => {
             <TableCell onClick={(e) => e.stopPropagation()}>
               <Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} />
             </TableCell>
-            <TableCell>
-              <div>
-                <p className="font-medium text-foreground">{lead.name}</p>
-              </div>
-            </TableCell>
-            <TableCell>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 text-sm">
-                  <Mail className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-muted-foreground">{lead.email}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <Phone className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-muted-foreground">{lead.phone}</span>
-                </div>
-              </div>
-            </TableCell>
-            <TableCell>
-              <span className="text-sm">{(lead as any)?.project?.name || 'N/A'}</span>
-            </TableCell>
-            <TableCell>
-              <Badge variant="outline" className={cn("text-xs border", getStatusStyle(lead.status))}>
-                {lead.status.charAt(0) + lead.status.slice(1).toLowerCase()}
-              </Badge>
-            </TableCell>
-            <TableCell>
-              <Badge variant="secondary" className={cn("text-xs", getPriorityStyle(lead.priority || ''))}>
-                {lead.priority}
-              </Badge>
-            </TableCell>
-            <TableCell><span className="font-medium">{lead.budget || 'N/A'}</span></TableCell>
-            <TableCell><Badge variant="outline" className="text-xs font-normal">{lead.source}</Badge></TableCell>
-            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+            {(projectFilter !== 'all' && combinedListFields.length > 0) ? (
+              <>
+                {combinedListFields.map((f) => {
+                  const v = (lead as any)?.dynamicData?.[f.key];
+                  const display = (v === undefined || v === null || String(v).trim() === '')
+                    ? '—'
+                    : f.type === 'CHECKBOX'
+                      ? (v === true ? 'Yes' : 'No')
+                      : String(v);
+
+                  return (
+                    <TableCell key={f.id}>
+                      <span className="text-sm text-foreground">{display}</span>
+                    </TableCell>
+                  );
+                })}
+
+                <TableCell>
+                  <span className="text-sm">{(lead as any)?.project?.name || 'N/A'}</span>
+                </TableCell>
+                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <MoreHorizontal className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="bg-popover">
+                      <DropdownMenuItem onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}>
+                        <Eye className="w-4 h-4 mr-2" /> View Details
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleEdit(lead)}>
+                        <Edit className="w-4 h-4 mr-2" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleCall(lead)}>
+                        <Phone className="w-4 h-4 mr-2" /> Call
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleEmail(lead)}>
+                        <Mail className="w-4 h-4 mr-2" /> Email
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(lead)}>
+                        <Trash2 className="w-4 h-4 mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </>
+            ) : (
+              <>
+                <TableCell>
+                  <div>
+                    <p className="font-medium text-foreground">{lead.name}</p>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Mail className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">{lead.email}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Phone className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">{lead.phone}</span>
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <span className="text-sm">{(lead as any)?.project?.name || 'N/A'}</span>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={cn("text-xs border", getStatusStyle(lead.status))}>
+                    {lead.status.charAt(0) + lead.status.slice(1).toLowerCase()}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="secondary" className={cn("text-xs", getPriorityStyle(lead.priority || ''))}>
+                    {lead.priority}
+                  </Badge>
+                </TableCell>
+                <TableCell><span className="font-medium">{lead.budget || 'N/A'}</span></TableCell>
+                <TableCell><Badge variant="outline" className="text-xs font-normal">{lead.source}</Badge></TableCell>
+                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -1054,6 +1171,8 @@ export const LeadsPage = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
             </TableCell>
+              </>
+            )}
           </TableRow>
         ))}
       </TableBody>
