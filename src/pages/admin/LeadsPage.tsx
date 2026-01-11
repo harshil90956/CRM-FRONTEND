@@ -73,6 +73,8 @@ import { PaginationBar } from "@/components/common/PaginationBar";
 
 type StaffOption = { id: string; name: string };
 
+type ProjectOption = { id: string; name: string };
+
 const statusOptions = [
   { value: "all", label: "All Status" },
   { value: "NEW", label: "New" },
@@ -107,7 +109,7 @@ const getPriorityStyle = (priority: string) => {
 export const LeadsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [isLoading, setIsLoading] = useState(true);
-  const [leads, setLeads] = useState<(LeadDb & { assignedTo?: string | null })[]>([]);
+  const [leads, setLeads] = useState<(LeadDb & { assignedTo?: string | null; project?: { id: string; name: string } | null })[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [newLeadStaffId, setNewLeadStaffId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -115,6 +117,7 @@ export const LeadsPage = () => {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [assignedFilter, setAssignedFilter] = useState("unassigned");
+  const [projectFilter, setProjectFilter] = useState("all");
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -170,6 +173,20 @@ export const LeadsPage = () => {
     return map;
   }, [staffOptions]);
 
+  const projectOptions = useMemo<ProjectOption[]>(() => {
+    const map = new Map<string, string>();
+    leads.forEach((l) => {
+      const id = (l as any)?.project?.id || l.projectId;
+      const name = (l as any)?.project?.name;
+      if (id) {
+        map.set(String(id), String(name || id));
+      }
+    });
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [leads]);
+
   const loadLeads = async () => {
     setIsLoading(true);
     try {
@@ -201,6 +218,10 @@ export const LeadsPage = () => {
       const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
       const matchesPriority = priorityFilter === "all" || lead.priority === priorityFilter;
       const matchesSource = sourceFilter === "all" || lead.source === sourceFilter;
+      const matchesProject =
+        projectFilter === "all" ||
+        (lead.projectId ? lead.projectId === projectFilter : false) ||
+        ((lead as any)?.project?.id ? String((lead as any).project.id) === projectFilter : false);
       const matchesAssigned =
         assignedFilter === "all" ||
         (assignedFilter === "unassigned" ? !lead.assignedToId : lead.assignedToId === assignedFilter);
@@ -211,15 +232,15 @@ export const LeadsPage = () => {
         matchesDate = isWithinInterval(leadDate, { start: dateRange.from, end: dateRange.to });
       }
       
-      return matchesSearch && matchesStatus && matchesPriority && matchesSource && matchesAssigned && matchesDate;
+      return matchesSearch && matchesStatus && matchesPriority && matchesSource && matchesProject && matchesAssigned && matchesDate;
     });
-  }, [leads, searchTerm, statusFilter, priorityFilter, sourceFilter, assignedFilter, dateRange]);
+  }, [leads, searchTerm, statusFilter, priorityFilter, sourceFilter, projectFilter, assignedFilter, dateRange]);
 
   const { page: currentPage, setPage: setCurrentPage, totalPages, pageItems: paginatedLeads } = useClientPagination(filteredLeads, { pageSize: 10 });
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, priorityFilter, sourceFilter, assignedFilter, dateRange, setCurrentPage]);
+  }, [searchTerm, statusFilter, priorityFilter, sourceFilter, projectFilter, assignedFilter, dateRange, setCurrentPage]);
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selectedIds);
@@ -572,7 +593,9 @@ export const LeadsPage = () => {
                 </div>
               </div>
             </TableCell>
-            <TableCell><span className="text-sm">{lead.projectId || 'N/A'}</span></TableCell>
+            <TableCell>
+              <span className="text-sm">{(lead as any)?.project?.name || 'N/A'}</span>
+            </TableCell>
             <TableCell>
               <Badge variant="outline" className={cn("text-xs border", getStatusStyle(lead.status))}>
                 {lead.status.charAt(0) + lead.status.slice(1).toLowerCase()}
@@ -766,6 +789,9 @@ export const LeadsPage = () => {
           onPriorityChange={setPriorityFilter}
           sourceFilter={sourceFilter}
           onSourceChange={setSourceFilter}
+          projectFilter={projectFilter}
+          onProjectChange={setProjectFilter}
+          projects={projectOptions}
           assignedFilter={assignedFilter}
           onAssignedChange={setAssignedFilter}
           onDateRangeChange={handleDateRangeChange}

@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ReviewForm } from "./ReviewForm";
 
 type ReviewTarget = {
@@ -33,6 +33,9 @@ export const ReviewModal = ({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{title || "Write a Review"}</DialogTitle>
+          <DialogDescription>
+            Share your experience. Your review helps others make better decisions.
+          </DialogDescription>
         </DialogHeader>
         <ReviewForm
           reviewType={target.type}

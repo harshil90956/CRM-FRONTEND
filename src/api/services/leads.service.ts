@@ -271,4 +271,15 @@ export const leadsService = {
     }
     return res.data;
   },
+
+  deleteManagerLead: async (id: string) => {
+    const res = await httpClient.del<ManagerLead>(`/manager/leads/${id}`);
+    if (!res.success) {
+      throw new Error(res.message || 'Failed to delete lead');
+    }
+    if (!res.data) {
+      throw new Error(res.message || 'Failed to delete lead');
+    }
+    return res.data;
+  },
 };

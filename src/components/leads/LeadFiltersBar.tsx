@@ -23,6 +23,11 @@ type AgentOption = {
   name: string;
 };
 
+type ProjectOption = {
+  id: string;
+  name: string;
+};
+
 interface LeadFiltersBarProps {
   searchTerm: string;
   onSearchChange: (value: string) => void;
@@ -32,6 +37,9 @@ interface LeadFiltersBarProps {
   onPriorityChange: (value: string) => void;
   sourceFilter: string;
   onSourceChange: (value: string) => void;
+  projectFilter?: string;
+  onProjectChange?: (value: string) => void;
+  projects?: ProjectOption[];
   assignedFilter: string;
   onAssignedChange: (value: string) => void;
   onDateRangeChange: (range: { from: Date | null; to: Date | null; preset: DatePreset }) => void;
@@ -87,6 +95,9 @@ export const LeadFiltersBar = ({
   onPriorityChange,
   sourceFilter,
   onSourceChange,
+  projectFilter,
+  onProjectChange,
+  projects,
   assignedFilter,
   onAssignedChange,
   onDateRangeChange,
@@ -137,7 +148,7 @@ export const LeadFiltersBar = ({
         </Select>
       </div>
 
-      {/* Row 2: Date + Source + Assigned */}
+      {/* Row 2: Date + Source + Project + Assigned */}
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <DateRangePicker onDateChange={onDateRangeChange} />
 
@@ -151,6 +162,20 @@ export const LeadFiltersBar = ({
             ))}
           </SelectContent>
         </Select>
+
+        {projectFilter !== undefined && onProjectChange && projects && projects.length > 0 && (
+          <Select value={projectFilter} onValueChange={onProjectChange}>
+            <SelectTrigger className="w-full sm:w-[170px]">
+              <SelectValue placeholder="All Projects" />
+            </SelectTrigger>
+            <SelectContent className="bg-popover">
+              <SelectItem value="all">All Projects</SelectItem>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <Select value={assignedFilter} onValueChange={onAssignedChange}>
           <SelectTrigger className="w-full sm:w-[150px]">

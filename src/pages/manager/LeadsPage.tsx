@@ -138,20 +138,22 @@ export const ManagerLeadsPage = () => {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [assignedFilter, setAssignedFilter] = useState("all");
+  const [projectFilter, setProjectFilter] = useState("all");
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedLead, setSelectedLead] = useState<ManagerLead | null>(null);
+
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [importCsv, setImportCsv] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [statusList, setStatusList] = useState<string[]>([]);
   const [allowedActionsById, setAllowedActionsById] = useState<Record<string, AllowedLeadActions>>({});
+  const [importCsv, setImportCsv] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const getAllowedActionsForLead = (id: string): AllowedLeadActions => {
     return (
@@ -278,7 +280,10 @@ export const ManagerLeadsPage = () => {
       const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
       const matchesPriority = priorityFilter === "all" || lead.priority === priorityFilter;
       const matchesSource = sourceFilter === "all" || lead.source === sourceFilter;
-      const matchesAssigned = assignedFilter === "all" || lead.assignedTo?.id === assignedFilter;
+      const matchesProject = projectFilter === 'all' || String(lead.project?.id || '') === projectFilter;
+      const matchesAssigned =
+        assignedFilter === "all" ||
+        (assignedFilter === "unassigned" ? !lead.assignedTo?.id : lead.assignedTo?.id === assignedFilter);
 
       let matchesDate = true;
       if (dateRange.from && dateRange.to) {
@@ -286,15 +291,15 @@ export const ManagerLeadsPage = () => {
         matchesDate = isWithinInterval(leadDate, { start: dateRange.from, end: dateRange.to });
       }
 
-      return matchesSearch && matchesStatus && matchesPriority && matchesSource && matchesAssigned && matchesDate;
+      return matchesSearch && matchesStatus && matchesPriority && matchesSource && matchesProject && matchesAssigned && matchesDate;
     });
-  }, [leads, searchTerm, statusFilter, priorityFilter, sourceFilter, assignedFilter, dateRange]);
+  }, [leads, searchTerm, statusFilter, priorityFilter, sourceFilter, projectFilter, assignedFilter, dateRange]);
 
   const { page: currentPage, setPage: setCurrentPage, totalPages, pageItems: paginatedLeads } = useClientPagination(filteredLeads, { pageSize: 10 });
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, priorityFilter, sourceFilter, assignedFilter, dateRange, setCurrentPage]);
+  }, [searchTerm, statusFilter, priorityFilter, sourceFilter, projectFilter, assignedFilter, dateRange, setCurrentPage]);
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selectedIds);
@@ -424,7 +429,29 @@ export const ManagerLeadsPage = () => {
   };
 
   const handleBulkDelete = async () => {
-    toast.error('Managers cannot delete leads');
+    const idsToDelete = Array.from(selectedIds);
+    if (idsToDelete.length === 0) return;
+
+    const results = await Promise.allSettled(
+      idsToDelete.map(async (id) => {
+        await leadsService.deleteManagerLead(id);
+        return id;
+      }),
+    );
+
+    const succeededIds = results.filter((r) => r.status === 'fulfilled').map((r) => (r as any).value as string);
+    const failed = results.length - succeededIds.length;
+
+    if (succeededIds.length > 0) {
+      await loadLeads();
+      toast.success(`Deleted ${succeededIds.length} lead(s)`);
+    }
+    if (failed > 0) {
+      const errMsg = (results.find((r) => r.status === 'rejected') as any)?.reason?.message;
+      toast.error(errMsg || `Failed to delete ${failed} lead(s)`);
+    }
+
+    setSelectedIds(new Set());
   };
 
   const handleEdit = (lead: ManagerLead) => {
@@ -454,13 +481,28 @@ export const ManagerLeadsPage = () => {
   };
 
   const handleDelete = (lead: ManagerLead) => {
-    toast.error('Managers cannot delete leads');
     setSelectedLead(lead);
+    setIsDeleteOpen(true);
   };
 
   const confirmDelete = async () => {
     if (!selectedLead) return;
-    toast.error('Managers cannot delete leads');
+    const canDelete = getAllowedActionsForLead(selectedLead.id).canDelete;
+    if (!canDelete) {
+      toast.error('Deleting this lead is not allowed');
+      return;
+    }
+
+    try {
+      await leadsService.deleteManagerLead(selectedLead.id);
+      await loadLeads();
+      setIsDeleteOpen(false);
+      setSelectedLead(null);
+      toast.success('Lead deleted successfully');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete lead';
+      toast.error(message || 'Failed to delete lead');
+    }
   };
 
   const handleUpdateLead = async () => {
@@ -506,6 +548,11 @@ export const ManagerLeadsPage = () => {
   const canBulkChangeStatus = useMemo(() => {
     if (selectedIds.size === 0) return false;
     return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canChangeStatus);
+  }, [allowedActionsById, selectedIds]);
+
+  const canBulkDelete = useMemo(() => {
+    if (selectedIds.size === 0) return false;
+    return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canDelete);
   }, [allowedActionsById, selectedIds]);
 
   const handleAddLead = async () => {
@@ -645,7 +692,13 @@ export const ManagerLeadsPage = () => {
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleCall(lead)}><Phone className="w-4 h-4 mr-2" /> Call</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleEmail(lead)}><Mail className="w-4 h-4 mr-2" /> Email</DropdownMenuItem>
-                  <DropdownMenuItem className="text-destructive" disabled><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    disabled={!getAllowedActionsForLead(lead.id).canDelete}
+                    onClick={() => handleDelete(lead)}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" /> Delete
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </TableCell>
@@ -667,7 +720,7 @@ export const ManagerLeadsPage = () => {
           onViewDetails={() => { setSelectedLead(lead); setIsDetailOpen(true); }}
           onEdit={getAllowedActionsForLead(lead.id).canEdit ? () => handleEdit(lead) : undefined}
           onCall={() => handleCall(lead)}
-          onDelete={undefined}
+          onDelete={getAllowedActionsForLead(lead.id).canDelete ? () => handleDelete(lead) : undefined}
           variant={variant}
         />
       ))}
@@ -771,6 +824,9 @@ export const ManagerLeadsPage = () => {
           onPriorityChange={setPriorityFilter}
           sourceFilter={sourceFilter}
           onSourceChange={setSourceFilter}
+          projectFilter={projectFilter}
+          onProjectChange={setProjectFilter}
+          projects={projectOptions}
           assignedFilter={assignedFilter}
           onAssignedChange={setAssignedFilter}
           onDateRangeChange={handleDateRangeChange}
@@ -833,7 +889,7 @@ export const ManagerLeadsPage = () => {
           <DropdownMenuContent className="bg-popover">{staffOptions.map((a) => (<DropdownMenuItem key={a.id} onClick={() => handleBulkAssign(a.id)}>{a.name}</DropdownMenuItem>))}</DropdownMenuContent>
         </DropdownMenu>
         <Button variant="outline" size="sm" className="gap-2" onClick={handleExportAll}><Download className="w-4 h-4" />Export</Button>
-        <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" disabled><Trash2 className="w-4 h-4" />Delete</Button>
+        <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" disabled={!canBulkDelete} onClick={handleBulkDelete}><Trash2 className="w-4 h-4" />Delete</Button>
       </ActionBottomBar>
 
       {/* Import Modal */}
