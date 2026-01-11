@@ -17,7 +17,7 @@ import { getLeadStatusStyle } from "@/lib/unitHelpers";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 import { leadsService, projectsService } from "@/api";
-import type { LeadDb } from "@/api/services/leads.service";
+import type { LeadDb, LeadField } from "@/api/services/leads.service";
 import type { ProjectDb } from "@/api/services/projects.service";
 import { useAppStore } from "@/stores/appStore";
 
@@ -46,10 +46,134 @@ export const AgentLeadsPage = () => {
 
   // State management for leads - this is the single source of truth
   const [leadsData, setLeadsData] = useState<LeadDb[]>([]);
+  const [editLeadFields, setEditLeadFields] = useState<LeadField[]>([]);
+  const [editDynamicData, setEditDynamicData] = useState<Record<string, any>>({});
+
+  const loadLeadFields = async (projectId: string | null, existing?: Record<string, any> | null) => {
+    try {
+      const res = await leadsService.listLeadFields(projectId);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load lead fields');
+      }
+      const fields = (res.data || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      setEditLeadFields(fields);
+      setEditDynamicData(existing || {});
+    } catch {
+      setEditLeadFields([]);
+      setEditDynamicData(existing || {});
+    }
+  };
+
+  const isMissingDynamicValue = (field: LeadField, value: any) => {
+    if (field.type === 'CHECKBOX') {
+      return value === undefined || value === null;
+    }
+    return value === undefined || value === null || String(value).trim() === '';
+  };
+
+  const validateRequiredDynamic = (fields: LeadField[], values: Record<string, any>): boolean => {
+    const missing = fields.filter((f) => f.required).some((f) => isMissingDynamicValue(f, values[f.key]));
+    if (missing) {
+      toast.error('Please fill all required dynamic fields');
+      return false;
+    }
+    return true;
+  };
+
+  const buildDynamicPayload = (fields: LeadField[], values: Record<string, any>) => {
+    if (!fields.length) return undefined;
+    const out: Record<string, any> = {};
+    fields.forEach((f) => {
+      const v = values[f.key];
+      if (f.type === 'CHECKBOX') {
+        if (v === true || v === false) out[f.key] = v;
+        return;
+      }
+      if (v === undefined || v === null || String(v).trim() === '') return;
+      if (f.type === 'NUMBER') {
+        const n = typeof v === 'number' ? v : Number(v);
+        if (!Number.isFinite(n)) return;
+        out[f.key] = n;
+        return;
+      }
+      out[f.key] = v;
+    });
+    return out;
+  };
+
+  const renderDynamicFields = (
+    fields: LeadField[],
+    values: Record<string, any>,
+    setValues: (next: Record<string, any>) => void,
+  ) => {
+    if (!fields.length) return null;
+    return (
+      <>
+        {fields.map((f) => {
+          const value = values[f.key];
+          const label = `${f.label}${f.required ? ' *' : ''}`;
+
+          if (f.type === 'SELECT') {
+            return (
+              <div key={f.id} className="grid gap-2">
+                <Label>{label}</Label>
+                <Select value={typeof value === 'string' ? value : ''} onValueChange={(v) => setValues({ ...values, [f.key]: v })}>
+                  <SelectTrigger><SelectValue placeholder={`Select ${f.label}`} /></SelectTrigger>
+                  <SelectContent>
+                    {(f.options || []).map((o) => (
+                      <SelectItem key={String(o)} value={String(o)}>{String(o)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          }
+
+          if (f.type === 'CHECKBOX') {
+            return (
+              <div key={f.id} className="flex items-center justify-between rounded-md border p-3">
+                <Label className="m-0">{label}</Label>
+                <input
+                  type="checkbox"
+                  checked={value === true}
+                  onChange={(e) => setValues({ ...values, [f.key]: e.target.checked })}
+                />
+              </div>
+            );
+          }
+
+          if (f.type === 'DATE') {
+            return (
+              <div key={f.id} className="grid gap-2">
+                <Label>{label}</Label>
+                <Input type="date" value={typeof value === 'string' ? value : ''} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
+              </div>
+            );
+          }
+
+          if (f.type === 'NUMBER') {
+            return (
+              <div key={f.id} className="grid gap-2">
+                <Label>{label}</Label>
+                <Input type="number" value={value === undefined || value === null ? '' : String(value)} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
+              </div>
+            );
+          }
+
+          return (
+            <div key={f.id} className="grid gap-2">
+              <Label>{label}</Label>
+              <Input value={typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
+            </div>
+          );
+        })}
+      </>
+    );
+  };
 
   const loadLeads = async () => {
     try {
-      const res = await leadsService.list();
+      const res = await leadsService.listAgentLeads();
       if (!res.success) {
         throw new Error(res.message || 'Failed to load leads');
       }
@@ -152,12 +276,17 @@ export const AgentLeadsPage = () => {
       priority: (lead.priority || "Medium") as any,
       notes: lead.notes || "",
     });
+    const existing = (lead as any)?.dynamicData || {};
+    setEditDynamicData(existing);
+    void loadLeadFields(lead.projectId || null, existing);
     setIsEditOpen(true);
   };
 
   const handleUpdateLead = async () => {
     if (!selectedLead) return;
     try {
+      if (!validateRequiredDynamic(editLeadFields, editDynamicData)) return;
+      const dynamicData = buildDynamicPayload(editLeadFields, editDynamicData);
       const res = await leadsService.updateAgentLead(selectedLead.id, {
         name: editLead.name,
         email: editLead.email,
@@ -167,6 +296,7 @@ export const AgentLeadsPage = () => {
         source: editLead.source,
         priority: editLead.priority,
         notes: editLead.notes,
+        ...(dynamicData ? { dynamicData } : {}),
       });
 
       if (!res.success) {
@@ -174,6 +304,7 @@ export const AgentLeadsPage = () => {
       }
 
       setIsEditOpen(false);
+      setEditDynamicData({});
       await loadLeads();
       toast.success('Lead updated successfully');
     } catch (err) {
@@ -369,6 +500,8 @@ export const AgentLeadsPage = () => {
               <Label>Notes</Label>
               <Textarea placeholder="Additional notes..." value={editLead.notes} onChange={(e) => setEditLead({ ...editLead, notes: e.target.value })} />
             </div>
+
+            {renderDynamicFields(editLeadFields, editDynamicData, setEditDynamicData)}
           </div>
           <DialogFooter>
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => setIsEditOpen(false)}>Cancel</Button>

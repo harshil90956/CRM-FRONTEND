@@ -10,6 +10,7 @@ export type LeadDb = {
   priority?: string | null;
   budget: string | number;
   notes?: string | null;
+  dynamicData?: Record<string, any> | null;
   projectId?: string | null;
   assignedToId?: string | null;
   tenantId: string;
@@ -28,6 +29,7 @@ export type CreateLeadInput = {
   projectId?: string;
   assignedToId?: string;
   tenantId: string;
+  dynamicData?: Record<string, any>;
 };
 
 export type AdminCreateLeadInput = {
@@ -40,6 +42,7 @@ export type AdminCreateLeadInput = {
   source: string;
   projectId?: string | null;
   tenantId: string;
+  dynamicData?: Record<string, any>;
 };
 
 export type AdminUpdateLeadInput = {
@@ -51,6 +54,7 @@ export type AdminUpdateLeadInput = {
   priority?: string;
   projectId?: string;
   budget?: string;
+  dynamicData?: Record<string, any>;
 };
 
 export type LeadStats = {
@@ -69,6 +73,7 @@ export type ManagerLead = {
   source: string;
   budget: string | number;
   notes?: string | null;
+  dynamicData?: Record<string, any> | null;
   createdAt: string;
   project: {
     id: string;
@@ -102,6 +107,7 @@ export type ManagerCreateLeadInput = {
   notes?: string;
   projectId?: string;
   assignedToId?: string;
+  dynamicData?: Record<string, any>;
 };
 
 export type ManagerUpdateLeadInput = {
@@ -114,6 +120,7 @@ export type ManagerUpdateLeadInput = {
   notes?: string;
   projectId?: string;
   assignedToId?: string;
+  dynamicData?: Record<string, any>;
 };
 
  export type AgentUpdateLeadInput = {
@@ -125,6 +132,19 @@ export type ManagerUpdateLeadInput = {
   budget?: string;
   notes?: string;
   projectId?: string;
+  dynamicData?: Record<string, any>;
+ };
+
+ export type AgentCreateLeadInput = {
+  name: string;
+  email: string;
+  phone: string;
+  source: string;
+  priority?: string;
+  budget: string;
+  notes?: string;
+  projectId?: string;
+  dynamicData?: Record<string, any>;
  };
 
  export type AgentLogActivityInput = {
@@ -133,9 +153,51 @@ export type ManagerUpdateLeadInput = {
   status?: string;
  };
 
+export type LeadFieldType = 'TEXT' | 'NUMBER' | 'DATE' | 'SELECT' | 'CHECKBOX';
+
+export type LeadField = {
+  id: string;
+  tenantId: string;
+  projectId: string | null;
+  key: string;
+  label: string;
+  type: LeadFieldType;
+  options: string[] | null;
+  required: boolean;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminCreateLeadFieldInput = {
+  tenantId?: string;
+  projectId?: string | null;
+  key: string;
+  label: string;
+  type: LeadFieldType;
+  options?: string[] | null;
+  required?: boolean;
+  order?: number;
+};
+
+export type AdminUpdateLeadFieldInput = {
+  tenantId?: string;
+  projectId?: string | null;
+  key?: string;
+  label?: string;
+  type?: LeadFieldType;
+  options?: string[] | null;
+  required?: boolean;
+  order?: number;
+};
+
 export const leadsService = {
   list: async () => {
     return httpClient.get<LeadDb[]>('/leads');
+  },
+
+  listAgentLeads: async () => {
+    return httpClient.get<LeadDb[]>('/agent/leads');
   },
 
   getById: async (id: string) => {
@@ -144,6 +206,37 @@ export const leadsService = {
 
   create: async (input: CreateLeadInput) => {
     return httpClient.post<LeadDb>('/leads', input);
+  },
+
+  createAgentLead: async (input: AgentCreateLeadInput) => {
+    return httpClient.post<LeadDb>('/agent/leads', input);
+  },
+
+  updateAgentLead: async (id: string, input: AgentUpdateLeadInput) => {
+    return httpClient.patch<LeadDb>(`/agent/leads/${id}`, input);
+  },
+
+  logAgentLeadActivity: async (id: string, input: AgentLogActivityInput) => {
+    return httpClient.post<LeadDb>(`/agent/leads/${id}/activity`, input);
+  },
+
+  listLeadFields: async (projectId?: string | null, tenantId?: string) => {
+    const params = new URLSearchParams();
+    if (tenantId) params.set('tenantId', tenantId);
+    if (projectId) params.set('projectId', projectId);
+    return httpClient.get<LeadField[]>(`/admin/lead-fields?${params.toString()}`);
+  },
+
+  createLeadField: async (input: AdminCreateLeadFieldInput) => {
+    return httpClient.post<LeadField>('/admin/lead-fields', input);
+  },
+
+  updateLeadField: async (id: string, input: AdminUpdateLeadFieldInput) => {
+    return httpClient.put<LeadField>(`/admin/lead-fields/${id}`, input);
+  },
+
+  deleteLeadField: async (id: string) => {
+    return httpClient.del<LeadField>(`/admin/lead-fields/${id}`);
   },
 
   assign: async (id: string, staffId: string) => {

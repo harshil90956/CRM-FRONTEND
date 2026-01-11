@@ -65,7 +65,7 @@ import { ViewMode } from "@/components/leads/ViewToggle";
 import { DatePreset } from "@/components/leads/DateRangePicker";
 import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
 import { leadsService } from "@/api";
-import type { AllowedLeadActions, ManagerLead } from "@/api/services/leads.service";
+import type { AllowedLeadActions, LeadField, ManagerLead } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isWithinInterval } from "date-fns";
@@ -198,6 +198,139 @@ export const ManagerLeadsPage = () => {
     notes: "",
   });
 
+  const [newLeadFields, setNewLeadFields] = useState<LeadField[]>([]);
+  const [editLeadFields, setEditLeadFields] = useState<LeadField[]>([]);
+  const [newDynamicData, setNewDynamicData] = useState<Record<string, any>>({});
+  const [editDynamicData, setEditDynamicData] = useState<Record<string, any>>({});
+
+  const loadLeadFields = async (projectId: string | null, mode: 'new' | 'edit', existing?: Record<string, any> | null) => {
+    try {
+      const res = await leadsService.listLeadFields(projectId);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load lead fields');
+      }
+      const fields = (res.data || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      if (mode === 'new') {
+        setNewLeadFields(fields);
+        setNewDynamicData(existing || {});
+      } else {
+        setEditLeadFields(fields);
+        setEditDynamicData(existing || {});
+      }
+    } catch {
+      if (mode === 'new') {
+        setNewLeadFields([]);
+        setNewDynamicData(existing || {});
+      } else {
+        setEditLeadFields([]);
+        setEditDynamicData(existing || {});
+      }
+    }
+  };
+
+  const isMissingDynamicValue = (field: LeadField, value: any) => {
+    if (field.type === 'CHECKBOX') {
+      return value === undefined || value === null;
+    }
+    return value === undefined || value === null || String(value).trim() === '';
+  };
+
+  const validateRequiredDynamic = (fields: LeadField[], values: Record<string, any>): boolean => {
+    const missing = fields.filter((f) => f.required).some((f) => isMissingDynamicValue(f, values[f.key]));
+    if (missing) {
+      toast.error('Please fill all required dynamic fields');
+      return false;
+    }
+    return true;
+  };
+
+  const buildDynamicPayload = (fields: LeadField[], values: Record<string, any>) => {
+    if (!fields.length) return undefined;
+    const out: Record<string, any> = {};
+    fields.forEach((f) => {
+      const v = values[f.key];
+      if (f.type === 'CHECKBOX') {
+        if (v === true || v === false) out[f.key] = v;
+        return;
+      }
+      if (v === undefined || v === null || String(v).trim() === '') return;
+      if (f.type === 'NUMBER') {
+        const n = typeof v === 'number' ? v : Number(v);
+        if (!Number.isFinite(n)) return;
+        out[f.key] = n;
+        return;
+      }
+      out[f.key] = v;
+    });
+    return out;
+  };
+
+  const renderDynamicFields = (
+    fields: LeadField[],
+    values: Record<string, any>,
+    setValues: (next: Record<string, any>) => void,
+  ) => {
+    if (!fields.length) return null;
+    return (
+      <>
+        {fields.map((f) => {
+          const value = values[f.key];
+          const label = `${f.label}${f.required ? ' *' : ''}`;
+
+          if (f.type === 'SELECT') {
+            return (
+              <div key={f.id} className="grid gap-2">
+                <Label>{label}</Label>
+                <Select value={typeof value === 'string' ? value : ''} onValueChange={(v) => setValues({ ...values, [f.key]: v })}>
+                  <SelectTrigger><SelectValue placeholder={`Select ${f.label}`} /></SelectTrigger>
+                  <SelectContent className="bg-popover">
+                    {(f.options || []).map((o) => (
+                      <SelectItem key={String(o)} value={String(o)}>{String(o)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          }
+
+          if (f.type === 'CHECKBOX') {
+            return (
+              <div key={f.id} className="flex items-center justify-between rounded-md border p-3">
+                <Label className="m-0">{label}</Label>
+                <Checkbox checked={value === true} onCheckedChange={(checked) => setValues({ ...values, [f.key]: Boolean(checked) })} />
+              </div>
+            );
+          }
+
+          if (f.type === 'DATE') {
+            return (
+              <div key={f.id} className="grid gap-2">
+                <Label>{label}</Label>
+                <Input type="date" value={typeof value === 'string' ? value : ''} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
+              </div>
+            );
+          }
+
+          if (f.type === 'NUMBER') {
+            return (
+              <div key={f.id} className="grid gap-2">
+                <Label>{label}</Label>
+                <Input type="number" value={value === undefined || value === null ? '' : String(value)} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
+              </div>
+            );
+          }
+
+          return (
+            <div key={f.id} className="grid gap-2">
+              <Label>{label}</Label>
+              <Input value={typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
+            </div>
+          );
+        })}
+      </>
+    );
+  };
+
   const projectOptions = useMemo<ProjectOption[]>(() => {
     const map = new Map<string, string>();
     leads.forEach((l) => {
@@ -213,6 +346,20 @@ export const ManagerLeadsPage = () => {
   useEffect(() => {
     loadLeads();
   }, []);
+
+  useEffect(() => {
+    if (!isAddOpen) return;
+    const projectId = newLead.projectId ? String(newLead.projectId) : null;
+    void loadLeadFields(projectId, 'new');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAddOpen, newLead.projectId]);
+
+  useEffect(() => {
+    if (!isEditOpen) return;
+    const projectId = editLead.projectId ? String(editLead.projectId) : null;
+    void loadLeadFields(projectId, 'edit', (selectedLead as any)?.dynamicData || {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditOpen, editLead.projectId]);
 
   useEffect(() => {
     void (async () => {
@@ -467,6 +614,7 @@ export const ManagerLeadsPage = () => {
       priority: (lead.priority || 'Medium') as any,
       notes: lead.notes || '',
     });
+    setEditDynamicData((lead as any)?.dynamicData || {});
     setIsEditOpen(true);
   };
 
@@ -518,6 +666,8 @@ export const ManagerLeadsPage = () => {
     }
 
     try {
+      if (!validateRequiredDynamic(editLeadFields, editDynamicData)) return;
+      const dynamicData = buildDynamicPayload(editLeadFields, editDynamicData);
       const nextAssignedToId = editLead.assignedToId || '';
 
       await leadsService.updateManagerLead(selectedLead.id, {
@@ -530,9 +680,11 @@ export const ManagerLeadsPage = () => {
         priority: editLead.priority ? editLead.priority : undefined,
         notes: editLead.notes ? editLead.notes : undefined,
         assignedToId: nextAssignedToId ? nextAssignedToId : undefined,
+        ...(dynamicData ? { dynamicData } : {}),
       });
       await loadLeads();
       setIsEditOpen(false);
+      setEditDynamicData({});
       toast.success('Lead updated successfully');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update lead';
@@ -562,6 +714,8 @@ export const ManagerLeadsPage = () => {
     }
 
     try {
+      if (!validateRequiredDynamic(newLeadFields, newDynamicData)) return;
+      const dynamicData = buildDynamicPayload(newLeadFields, newDynamicData);
       await leadsService.createManagerLead({
         name: newLead.name,
         email: newLead.email,
@@ -572,11 +726,13 @@ export const ManagerLeadsPage = () => {
         priority: newLead.priority ? newLead.priority : undefined,
         notes: newLead.notes ? newLead.notes : undefined,
         assignedToId: newLeadStaffId ? newLeadStaffId : undefined,
+        ...(dynamicData ? { dynamicData } : {}),
       });
 
       await loadLeads();
       setIsAddOpen(false);
       setNewLead({ name: "", email: "", phone: "", projectId: "", budget: "", source: "Website", priority: "Medium", notes: "" });
+      setNewDynamicData({});
       toast.success('Lead added successfully');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create lead';
@@ -754,22 +910,20 @@ export const ManagerLeadsPage = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label>Project</Label>
-                    <Select value={newLead.projectId} onValueChange={(v) => setNewLead({ ...newLead, projectId: v })}>
-                      <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                      <SelectContent className="bg-popover">
-                        {projectOptions.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Budget *</Label>
-                    <Input placeholder="₹50L - ₹1Cr" value={newLead.budget} onChange={(e) => setNewLead({ ...newLead, budget: e.target.value })} />
-                  </div>
+                <div className="grid gap-2">
+                  <Label>Project</Label>
+                  <Select value={newLead.projectId} onValueChange={(v) => setNewLead({ ...newLead, projectId: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                    <SelectContent className="bg-popover">
+                      {projectOptions.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Budget *</Label>
+                  <Input placeholder="₹50L - ₹1Cr" value={newLead.budget} onChange={(e) => setNewLead({ ...newLead, budget: e.target.value })} />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="grid gap-2">
@@ -790,11 +944,16 @@ export const ManagerLeadsPage = () => {
                     <Label>Priority</Label>
                     <Select value={newLead.priority} onValueChange={(v) => setNewLead({ ...newLead, priority: v })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent className="bg-popover"><SelectItem value="High">High</SelectItem><SelectItem value="Medium">Medium</SelectItem><SelectItem value="Low">Low</SelectItem></SelectContent>
+                      <SelectContent className="bg-popover">
+                        <SelectItem value="High">High</SelectItem>
+                        <SelectItem value="Medium">Medium</SelectItem>
+                        <SelectItem value="Low">Low</SelectItem>
+                      </SelectContent>
                     </Select>
                   </div>
                 </div>
                 <div className="grid gap-2"><Label>Notes</Label><Textarea placeholder="Additional notes..." value={newLead.notes} onChange={(e) => setNewLead({ ...newLead, notes: e.target.value })} /></div>
+                {renderDynamicFields(newLeadFields, newDynamicData, setNewDynamicData)}
               </div>
               <DialogFooter>
                 <Button variant="outline" className="w-full sm:w-auto" onClick={() => setIsAddOpen(false)}>Cancel</Button>
@@ -802,10 +961,10 @@ export const ManagerLeadsPage = () => {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
         </div>
       }
     >
-      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <KPICard title="Total Leads" value={kpis.total} icon={Users} delay={0} />
         <KPICard title="New" value={kpis.new} icon={Users} change={12} changeLabel="this week" delay={0.1} />
@@ -813,7 +972,6 @@ export const ManagerLeadsPage = () => {
         <KPICard title="Converted" value={kpis.converted} icon={Users} iconColor="text-success" delay={0.3} />
       </div>
 
-      {/* Filters Section */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
         <LeadFiltersBar
           searchTerm={searchTerm}
@@ -842,11 +1000,17 @@ export const ManagerLeadsPage = () => {
         />
       </motion.div>
 
-      {/* Content Area */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         {isLoading ? (
           <div className="bg-card rounded-lg border border-border p-6 space-y-4">
-            {[...Array(5)].map((_, i) => (<div key={i} className="flex items-center gap-4"><Skeleton className="h-4 w-4" /><Skeleton className="h-10 w-32" /><Skeleton className="h-10 flex-1" /><Skeleton className="h-6 w-20" /></div>))}
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <Skeleton className="h-4 w-4" />
+                <Skeleton className="h-10 w-32" />
+                <Skeleton className="h-10 flex-1" />
+                <Skeleton className="h-6 w-20" />
+              </div>
+            ))}
           </div>
         ) : viewMode === 'calendar' ? (
           <LeadCalendarView
@@ -864,7 +1028,6 @@ export const ManagerLeadsPage = () => {
         )}
       </motion.div>
 
-      {/* Bottom Action Bar */}
       <ActionBottomBar selectedCount={selectedIds.size} onClose={() => setSelectedIds(new Set())}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -880,19 +1043,30 @@ export const ManagerLeadsPage = () => {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="gap-2" disabled={!canBulkAssign}>
               <Users className="w-4 h-4" />Assign to
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="bg-popover">{staffOptions.map((a) => (<DropdownMenuItem key={a.id} onClick={() => handleBulkAssign(a.id)}>{a.name}</DropdownMenuItem>))}</DropdownMenuContent>
+          <DropdownMenuContent className="bg-popover">
+            {staffOptions.map((a) => (
+              <DropdownMenuItem key={a.id} onClick={() => handleBulkAssign(a.id)}>
+                {a.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
         </DropdownMenu>
-        <Button variant="outline" size="sm" className="gap-2" onClick={handleExportAll}><Download className="w-4 h-4" />Export</Button>
-        <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" disabled={!canBulkDelete} onClick={handleBulkDelete}><Trash2 className="w-4 h-4" />Delete</Button>
+
+        <Button variant="outline" size="sm" className="gap-2" onClick={handleExportAll}>
+          <Download className="w-4 h-4" />Export
+        </Button>
+        <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" disabled={!canBulkDelete} onClick={handleBulkDelete}>
+          <Trash2 className="w-4 h-4" />Delete
+        </Button>
       </ActionBottomBar>
 
-      {/* Import Modal */}
       <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader><DialogTitle>Import Leads from CSV</DialogTitle><DialogDescription>Review and import</DialogDescription></DialogHeader>
@@ -910,7 +1084,6 @@ export const ManagerLeadsPage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Lead Detail Modal */}
       <LeadDetailModal lead={detailLead} open={isDetailOpen} onOpenChange={setIsDetailOpen} />
 
       {/* Edit Lead Modal */}
@@ -994,6 +1167,8 @@ export const ManagerLeadsPage = () => {
               <Label>Notes</Label>
               <Textarea placeholder="Additional notes..." value={editLead.notes} onChange={(e) => setEditLead({ ...editLead, notes: e.target.value })} />
             </div>
+
+            {renderDynamicFields(editLeadFields, editDynamicData, setEditDynamicData)}
           </div>
           <DialogFooter>
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => setIsEditOpen(false)}>Cancel</Button>
