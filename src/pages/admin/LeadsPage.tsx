@@ -63,8 +63,8 @@ import { LeadCalendarView } from "@/components/leads/LeadCalendarView";
 import { ViewMode } from "@/components/leads/ViewToggle";
 import { DatePreset } from "@/components/leads/DateRangePicker";
 import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
-import { leadsService, staffService } from "@/api";
-import type { LeadDb } from "@/api/services/leads.service";
+import { leadsService, projectsService, staffService } from "@/api";
+import type { LeadDb, LeadField } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isWithinInterval } from "date-fns";
@@ -111,6 +111,7 @@ export const LeadsPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [leads, setLeads] = useState<(LeadDb & { assignedTo?: string | null; project?: { id: string; name: string } | null })[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [newLeadStaffId, setNewLeadStaffId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -131,6 +132,24 @@ export const LeadsPage = () => {
   const [editLead, setEditLead] = useState({ name: "", email: "", phone: "", project: "", budget: "", source: "Website", priority: "Medium", notes: "" });
   const [importCsv, setImportCsv] = useState("");
 
+  const [newLeadFields, setNewLeadFields] = useState<LeadField[]>([]);
+  const [editLeadFields, setEditLeadFields] = useState<LeadField[]>([]);
+  const [newDynamicData, setNewDynamicData] = useState<Record<string, any>>({});
+  const [editDynamicData, setEditDynamicData] = useState<Record<string, any>>({});
+
+  const [isManageFieldsOpen, setIsManageFieldsOpen] = useState(false);
+  const [manageProjectId, setManageProjectId] = useState<string>('none');
+  const [manageLeadFields, setManageLeadFields] = useState<LeadField[]>([]);
+  const [isFieldKeyTouched, setIsFieldKeyTouched] = useState(false);
+  const [newField, setNewField] = useState({
+    key: '',
+    label: '',
+    type: 'TEXT' as LeadField['type'],
+    optionsText: '',
+    required: false,
+    order: '0',
+  });
+
   const [newLead, setNewLead] = useState({
     name: "",
     email: "",
@@ -142,9 +161,228 @@ export const LeadsPage = () => {
     notes: "",
   });
 
+  const [addLeadStep, setAddLeadStep] = useState<'project' | 'details'>('project');
+
+  const loadLeadFields = async (projectId: string | null, mode: 'new' | 'edit', existing?: Record<string, any> | null) => {
+    try {
+      const res = await leadsService.listLeadFields(projectId);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load lead fields');
+      }
+      const fields = (res.data || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      if (mode === 'new') {
+        setNewLeadFields(fields);
+        setNewDynamicData(existing || {});
+      } else {
+        setEditLeadFields(fields);
+        setEditDynamicData(existing || {});
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to load lead fields';
+      toast.error(message);
+      if (mode === 'new') {
+        setNewLeadFields([]);
+        setNewDynamicData(existing || {});
+      } else {
+        setEditLeadFields([]);
+        setEditDynamicData(existing || {});
+      }
+    }
+  };
+
+  const isMissingDynamicValue = (field: LeadField, value: any) => {
+    if (field.type === 'CHECKBOX') {
+      return value === undefined || value === null;
+    }
+    return value === undefined || value === null || String(value).trim() === '';
+  };
+
+  const validateRequiredDynamic = (fields: LeadField[], values: Record<string, any>): boolean => {
+    const missing = fields.filter((f) => f.required).some((f) => isMissingDynamicValue(f, values[f.key]));
+    if (missing) {
+      toast.error('Please fill all required dynamic fields');
+      return false;
+    }
+    return true;
+  };
+
+  const buildDynamicPayload = (fields: LeadField[], values: Record<string, any>) => {
+    if (!fields.length) return undefined;
+    const out: Record<string, any> = {};
+    fields.forEach((f) => {
+      const v = values[f.key];
+      if (f.type === 'CHECKBOX') {
+        if (v === true || v === false) out[f.key] = v;
+        return;
+      }
+      if (v === undefined || v === null || String(v).trim() === '') return;
+      if (f.type === 'NUMBER') {
+        const n = typeof v === 'number' ? v : Number(v);
+        if (!Number.isFinite(n)) return;
+        out[f.key] = n;
+        return;
+      }
+      out[f.key] = v;
+    });
+    return out;
+  };
+
+  const getCoreFieldKey = (fields: LeadField[], kind: 'name' | 'email' | 'phone'): string | null => {
+    const candidates: Record<typeof kind, string[]> = {
+      name: ['full_name', 'name'],
+      email: ['email'],
+      phone: ['phone'],
+    };
+    const set = new Set(candidates[kind]);
+    const found = fields.find((f) => set.has(String(f.key)));
+    return found?.key || null;
+  };
+
+  const getCoreKeys = (fields: LeadField[]) => {
+    const nameKey = getCoreFieldKey(fields, 'name');
+    const emailKey = getCoreFieldKey(fields, 'email');
+    const phoneKey = getCoreFieldKey(fields, 'phone');
+    return { nameKey, emailKey, phoneKey };
+  };
+
+  const resolveCoreValues = (
+    fields: LeadField[],
+    values: Record<string, any>,
+    fallback?: { name?: string; email?: string; phone?: string },
+    opts?: { silent?: boolean },
+  ) => {
+    const { nameKey, emailKey, phoneKey } = getCoreKeys(fields);
+
+    const nameFromSchema = nameKey ? values[nameKey] : undefined;
+    const emailFromSchema = emailKey ? values[emailKey] : undefined;
+    const phoneFromSchema = phoneKey ? values[phoneKey] : undefined;
+
+    const name = !isMissingDynamicValue({ ...(fields[0] || {}), type: 'TEXT', key: nameKey || 'name', label: 'Name', required: true } as any, nameFromSchema)
+      ? nameFromSchema
+      : fallback?.name;
+    const email = !isMissingDynamicValue({ ...(fields[0] || {}), type: 'TEXT', key: emailKey || 'email', label: 'Email', required: true } as any, emailFromSchema)
+      ? emailFromSchema
+      : fallback?.email;
+    const phone = !isMissingDynamicValue({ ...(fields[0] || {}), type: 'TEXT', key: phoneKey || 'phone', label: 'Phone', required: true } as any, phoneFromSchema)
+      ? phoneFromSchema
+      : fallback?.phone;
+
+    if (!name || !email || !phone) {
+      if (!opts?.silent) {
+        toast.error('Please fill required fields: Name, Email, Phone');
+      }
+      return null;
+    }
+
+    return { name: String(name), email: String(email), phone: String(phone), keys: { nameKey, emailKey, phoneKey } };
+  };
+
+  const renderDynamicFields = (
+    fields: LeadField[],
+    values: Record<string, any>,
+    setValues: (next: Record<string, any>) => void,
+  ) => {
+    if (!fields.length) return null;
+    return (
+      <>
+        {fields.map((f) => {
+          const value = values[f.key];
+          const label = `${f.label}${f.required ? ' *' : ''}`;
+
+          if (f.type === 'SELECT') {
+            return (
+              <div key={f.id} className="grid gap-2">
+                <Label>{label}</Label>
+                <Select
+                  value={typeof value === 'string' ? value : ''}
+                  onValueChange={(v) => setValues({ ...values, [f.key]: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder={`Select ${f.label}`} /></SelectTrigger>
+                  <SelectContent className="bg-popover">
+                    {(f.options || []).map((o) => (
+                      <SelectItem key={String(o)} value={String(o)}>{String(o)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          }
+
+          if (f.type === 'CHECKBOX') {
+            return (
+              <div key={f.id} className="flex items-center justify-between rounded-md border p-3">
+                <Label className="m-0">{label}</Label>
+                <Checkbox
+                  checked={value === true}
+                  onCheckedChange={(checked) => setValues({ ...values, [f.key]: Boolean(checked) })}
+                />
+              </div>
+            );
+          }
+
+          if (f.type === 'DATE') {
+            return (
+              <div key={f.id} className="grid gap-2">
+                <Label>{label}</Label>
+                <Input
+                  type="date"
+                  value={typeof value === 'string' ? value : ''}
+                  onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                />
+              </div>
+            );
+          }
+
+          if (f.type === 'NUMBER') {
+            return (
+              <div key={f.id} className="grid gap-2">
+                <Label>{label}</Label>
+                <Input
+                  type="number"
+                  value={value === undefined || value === null ? '' : String(value)}
+                  onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                />
+              </div>
+            );
+          }
+
+          return (
+            <div key={f.id} className="grid gap-2">
+              <Label>{label}</Label>
+              <Input
+                value={typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)}
+                onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+              />
+            </div>
+          );
+        })}
+      </>
+    );
+  };
+
   useEffect(() => {
     loadLeads();
   }, []);
+
+  useEffect(() => {
+    if (!isAddOpen && !isQuickAddOpen) return;
+    const projectId = newLead.project ? String(newLead.project) : null;
+    void loadLeadFields(projectId, 'new');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAddOpen, isQuickAddOpen, newLead.project]);
+
+  useEffect(() => {
+    if (!isAddOpen) return;
+    setAddLeadStep('project');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAddOpen]);
+
+  useEffect(() => {
+    if (!isEditOpen) return;
+    const projectId = editLead.project ? String(editLead.project) : null;
+    void loadLeadFields(projectId, 'edit', (selectedLead as any)?.dynamicData || {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditOpen, editLead.project]);
 
   useEffect(() => {
     (async () => {
@@ -167,6 +405,23 @@ export const LeadsPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await projectsService.list();
+        if (!res.success) {
+          throw new Error(res.message || 'Failed to load projects');
+        }
+        const opts = (res.data || [])
+          .map((p) => ({ id: p.id, name: p.name }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setProjects(opts);
+      } catch {
+        setProjects([]);
+      }
+    })();
+  }, []);
+
   const staffNameById = useMemo(() => {
     const map = new Map<string, string>();
     staffOptions.forEach((s) => map.set(s.id, s.name));
@@ -186,6 +441,112 @@ export const LeadsPage = () => {
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [leads]);
+
+  const projectSelectOptions = useMemo<ProjectOption[]>(() => {
+    return projects.length ? projects : projectOptions;
+  }, [projects, projectOptions]);
+
+  const loadManageLeadFields = async (projectId: string | null) => {
+    try {
+      const res = await leadsService.listLeadFields(projectId);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load custom fields');
+      }
+      setManageLeadFields((res.data || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to load custom fields';
+      toast.error(message);
+      setManageLeadFields([]);
+    }
+  };
+
+  useEffect(() => {
+    if (!isManageFieldsOpen) return;
+    const projectId = manageProjectId === 'none' ? null : manageProjectId;
+    void loadManageLeadFields(projectId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isManageFieldsOpen, manageProjectId]);
+
+  const parseOptionsText = (t: string): string[] => {
+    return t
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  };
+
+  const normalizeLeadFieldKey = (raw: string): string => {
+    const s = raw
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+/, '')
+      .replace(/_+$/, '');
+    if (!s) return '';
+    if (!/^[a-z]/.test(s)) return `field_${s}`;
+    return s;
+  };
+
+  const handleCreateLeadField = async () => {
+    const projectId = manageProjectId === 'none' ? null : manageProjectId;
+    const order = Number(newField.order);
+    const normalizedKey = normalizeLeadFieldKey(newField.key);
+    if (!normalizedKey || !newField.label.trim()) {
+      toast.error('Label is required');
+      return;
+    }
+    if (!Number.isFinite(order)) {
+      toast.error('Order must be a number');
+      return;
+    }
+
+    const options = newField.type === 'SELECT' ? parseOptionsText(newField.optionsText) : null;
+    if (newField.type === 'SELECT' && (!options || options.length === 0)) {
+      toast.error('Options are required for SELECT type');
+      return;
+    }
+
+    try {
+      const res = await leadsService.createLeadField({
+        key: normalizedKey,
+        label: newField.label.trim(),
+        type: newField.type,
+        required: Boolean(newField.required),
+        order,
+        projectId,
+        options,
+      });
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to create custom field');
+      }
+      toast.success('Custom field created');
+      setNewField({ key: '', label: '', type: 'TEXT' as any, optionsText: '', required: false, order: '0' });
+      setIsFieldKeyTouched(false);
+      await loadManageLeadFields(projectId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to create custom field';
+      if (String(message).toLowerCase().includes('locked')) {
+        toast.error('This project already has leads, so its custom field schema is locked. Create fields before adding leads, use another project, or use "No Project" fields.');
+      } else {
+        toast.error(message);
+      }
+    }
+  };
+
+  const handleDeleteLeadField = async (id: string) => {
+    const projectId = manageProjectId === 'none' ? null : manageProjectId;
+    try {
+      const res = await leadsService.deleteLeadField(id);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to delete custom field');
+      }
+      toast.success('Custom field deleted');
+      await loadManageLeadFields(projectId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to delete custom field';
+      toast.error(message);
+    }
+  };
 
   const loadLeads = async () => {
     setIsLoading(true);
@@ -389,26 +750,54 @@ export const LeadsPage = () => {
   };
 
   const handleAddLead = async () => {
-    if (!newLead.name || !newLead.email || !newLead.phone) {
-      toast.error("Please fill all required fields");
-      return;
-    }
-
     try {
-      await leadsService.createLead({
-        name: newLead.name,
-        email: newLead.email,
-        phone: newLead.phone,
-        projectId: newLead.project ? newLead.project : null,
-        budget: newLead.budget ? Number(newLead.budget) : null,
-        source: (newLead.source || 'Website') as any,
-        priority: (newLead.priority || undefined) as any,
-        notes: newLead.notes ? newLead.notes : null,
-        tenantId: 'tenant_default',
-      });
+      const hasSchema = newLeadFields.length > 0;
+      if (hasSchema) {
+        if (!validateRequiredDynamic(newLeadFields, newDynamicData)) return;
+        const core = resolveCoreValues(newLeadFields, newDynamicData, {
+          name: newLead.name,
+          email: newLead.email,
+          phone: newLead.phone,
+        });
+        if (!core) return;
+        const dynamicData = buildDynamicPayload(newLeadFields, newDynamicData);
+
+        await leadsService.createLead({
+          name: core.name,
+          email: core.email,
+          phone: core.phone,
+          projectId: newLead.project ? newLead.project : null,
+          budget: newLead.budget ? Number(newLead.budget) : null,
+          source: (newLead.source || 'Website') as any,
+          priority: (newLead.priority || undefined) as any,
+          notes: newLead.notes ? newLead.notes : null,
+          tenantId: 'tenant_default',
+          ...(dynamicData ? { dynamicData } : {}),
+        });
+      } else {
+        if (!newLead.name || !newLead.email || !newLead.phone) {
+          toast.error("Please fill all required fields");
+          return;
+        }
+        const dynamicData = buildDynamicPayload(newLeadFields, newDynamicData);
+
+        await leadsService.createLead({
+          name: newLead.name,
+          email: newLead.email,
+          phone: newLead.phone,
+          projectId: newLead.project ? newLead.project : null,
+          budget: newLead.budget ? Number(newLead.budget) : null,
+          source: (newLead.source || 'Website') as any,
+          priority: (newLead.priority || undefined) as any,
+          notes: newLead.notes ? newLead.notes : null,
+          tenantId: 'tenant_default',
+          ...(dynamicData ? { dynamicData } : {}),
+        });
+      }
       await loadLeads();
       setIsAddOpen(false);
       setNewLead({ name: "", email: "", phone: "", project: "", budget: "", source: "Website", priority: "Medium", notes: "" });
+      setNewDynamicData({});
       toast.success("Lead added successfully");
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create lead';
@@ -423,6 +812,9 @@ export const LeadsPage = () => {
     }
 
     try {
+      if (!validateRequiredDynamic(newLeadFields, newDynamicData)) return;
+      const dynamicData = buildDynamicPayload(newLeadFields, newDynamicData);
+
       await leadsService.createLead({
         name: newLead.name,
         email: newLead.email,
@@ -433,10 +825,13 @@ export const LeadsPage = () => {
         priority: (newLead.priority || undefined) as any,
         notes: newLead.notes ? newLead.notes : null,
         tenantId: 'tenant_default',
+        ...(dynamicData ? { dynamicData } : {}),
       });
+
       await loadLeads();
       setIsQuickAddOpen(false);
       setNewLead({ name: "", email: "", phone: "", project: "", budget: "", source: "Website", priority: "Medium", notes: "" });
+      setNewDynamicData({});
       toast.success("Lead added quickly!");
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create lead';
@@ -471,25 +866,49 @@ export const LeadsPage = () => {
       priority: lead.priority || "Medium",
       notes: lead.notes || ""
     });
+    setEditDynamicData((lead as any)?.dynamicData || {});
     setIsEditOpen(true);
   };
 
   const handleUpdateLead = async () => {
-    if (!selectedLead || !editLead.name || !editLead.email || !editLead.phone) {
-      toast.error("Please fill all required fields");
-      return;
-    }
-
     try {
+      if (!selectedLead) return;
+
+      const hasSchema = editLeadFields.length > 0;
+      let name = editLead.name;
+      let email = editLead.email;
+      let phone = editLead.phone;
+
+      if (hasSchema) {
+        if (!validateRequiredDynamic(editLeadFields, editDynamicData)) return;
+        const core = resolveCoreValues(editLeadFields, editDynamicData, {
+          name: editLead.name,
+          email: editLead.email,
+          phone: editLead.phone,
+        });
+        if (!core) return;
+        name = core.name;
+        email = core.email;
+        phone = core.phone;
+      } else {
+        if (!name || !email || !phone) {
+          toast.error("Please fill all required fields");
+          return;
+        }
+      }
+
+      const dynamicData = buildDynamicPayload(editLeadFields, editDynamicData);
+
       const res = await leadsService.updateLead(selectedLead.id, {
-        name: editLead.name,
-        email: editLead.email,
-        phone: editLead.phone,
+        name,
+        email,
+        phone,
         notes: editLead.notes || undefined,
         source: editLead.source || undefined,
         priority: editLead.priority || undefined,
         projectId: editLead.project || undefined,
         budget: editLead.budget || undefined,
+        ...(dynamicData ? { dynamicData } : {}),
       });
       if (!res.success) {
         toast.error(res.message || 'Failed to update lead');
@@ -497,6 +916,7 @@ export const LeadsPage = () => {
       }
       await loadLeads();
       setIsEditOpen(false);
+      setEditDynamicData({});
       toast.success('Lead updated successfully');
     } catch {
       toast.error('Failed to update lead');
@@ -669,6 +1089,136 @@ export const LeadsPage = () => {
       sidebarCollapsed={sidebarCollapsed}
       actions={
         <div className="flex items-center gap-2">
+          <Dialog open={isManageFieldsOpen} onOpenChange={setIsManageFieldsOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">Custom Fields</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Custom Lead Fields</DialogTitle>
+                <DialogDescription>Create and manage custom fields for a project</DialogDescription>
+              </DialogHeader>
+
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label>Project</Label>
+                  <Select value={manageProjectId} onValueChange={setManageProjectId}>
+                    <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                    <SelectContent className="bg-popover">
+                      <SelectItem value="none">No Project</SelectItem>
+                      {projectSelectOptions.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="text-xs text-muted-foreground">
+                    Fields are scoped to the selected project. "No Project" means tenant-level fields.
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label>Existing Fields</Label>
+                  <div className="rounded-md border">
+                    <div className="grid grid-cols-12 gap-2 p-2 text-xs font-medium text-muted-foreground">
+                      <div className="col-span-3">Key</div>
+                      <div className="col-span-3">Label</div>
+                      <div className="col-span-2">Type</div>
+                      <div className="col-span-2">Required</div>
+                      <div className="col-span-2 text-right">Actions</div>
+                    </div>
+                    <div className="max-h-56 overflow-auto">
+                      {manageLeadFields.length === 0 ? (
+                        <div className="p-3 text-sm text-muted-foreground">No custom fields yet.</div>
+                      ) : (
+                        manageLeadFields.map((f) => (
+                          <div key={f.id} className="grid grid-cols-12 gap-2 items-center p-2 border-t">
+                            <div className="col-span-3 text-sm font-mono truncate" title={f.key}>{f.key}</div>
+                            <div className="col-span-3 text-sm truncate" title={f.label}>{f.label}</div>
+                            <div className="col-span-2 text-sm">{f.type}</div>
+                            <div className="col-span-2 text-sm">{f.required ? 'Yes' : 'No'}</div>
+                            <div className="col-span-2 flex justify-end">
+                              <Button variant="outline" size="sm" onClick={() => handleDeleteLeadField(f.id)}>Delete</Button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  <Label>Add New Field</Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label>Key *</Label>
+                      <Input
+                        value={newField.key}
+                        onChange={(e) => {
+                          setIsFieldKeyTouched(true);
+                          setNewField({ ...newField, key: normalizeLeadFieldKey(e.target.value) });
+                        }}
+                        placeholder="Auto: preferred_location"
+                      />
+                      <div className="text-xs text-muted-foreground">Auto converted to snake_case. You can leave it blank and it will be generated from Label.</div>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Label *</Label>
+                      <Input
+                        value={newField.label}
+                        onChange={(e) => {
+                          const nextLabel = e.target.value;
+                          const next: any = { ...newField, label: nextLabel };
+                          if (!isFieldKeyTouched || !newField.key.trim()) {
+                            next.key = normalizeLeadFieldKey(nextLabel);
+                          }
+                          setNewField(next);
+                        }}
+                        placeholder="e.g. Preferred Location"
+                      />
+                      <div className="text-xs text-muted-foreground">Label is the field name shown in Lead form (not a value like an email).</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="grid gap-2">
+                      <Label>Type</Label>
+                      <Select value={newField.type} onValueChange={(v) => setNewField({ ...newField, type: v as any })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent className="bg-popover">
+                          <SelectItem value="TEXT">TEXT</SelectItem>
+                          <SelectItem value="NUMBER">NUMBER</SelectItem>
+                          <SelectItem value="DATE">DATE</SelectItem>
+                          <SelectItem value="SELECT">SELECT</SelectItem>
+                          <SelectItem value="CHECKBOX">CHECKBOX</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Order</Label>
+                      <Input value={newField.order} onChange={(e) => setNewField({ ...newField, order: e.target.value })} placeholder="0" />
+                    </div>
+                    <div className="flex items-center justify-between rounded-md border p-3">
+                      <Label className="m-0">Required</Label>
+                      <Checkbox checked={newField.required} onCheckedChange={(checked) => setNewField({ ...newField, required: Boolean(checked) })} />
+                    </div>
+                  </div>
+
+                  {newField.type === 'SELECT' && (
+                    <div className="grid gap-2">
+                      <Label>Options (comma separated)</Label>
+                      <Textarea value={newField.optionsText} onChange={(e) => setNewField({ ...newField, optionsText: e.target.value })} placeholder="Option A, Option B, Option C" rows={3} />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsManageFieldsOpen(false)}>Close</Button>
+                <Button onClick={handleCreateLeadField}>Create Field</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <Dialog open={isQuickAddOpen} onOpenChange={setIsQuickAddOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm"><Zap className="w-4 h-4 mr-2" />Quick Add</Button>
@@ -691,6 +1241,28 @@ export const LeadsPage = () => {
                   <Label>Email *</Label>
                   <Input type="email" placeholder="email@example.com" value={newLead.email} onChange={(e) => setNewLead({ ...newLead, email: e.target.value })} />
                 </div>
+                <div className="grid gap-2">
+                  <Label>Project</Label>
+                  <Select
+                    value={newLead.project ? String(newLead.project) : 'none'}
+                    onValueChange={(v) => setNewLead({ ...newLead, project: v === 'none' ? '' : v })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                    <SelectContent className="bg-popover">
+                      <SelectItem value="none">No Project</SelectItem>
+                      {projectSelectOptions.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {renderDynamicFields(newLeadFields, newDynamicData, setNewDynamicData)}
+                {newLead.project && newLeadFields.length === 0 && (
+                  <div className="text-xs text-muted-foreground">No custom fields configured for this project.</div>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsQuickAddOpen(false)}>Cancel</Button>
@@ -708,70 +1280,199 @@ export const LeadsPage = () => {
                 <DialogTitle>Add New Lead</DialogTitle>
                 <DialogDescription>Enter the complete lead details</DialogDescription>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label>Full Name *</Label>
-                  <Input placeholder="Enter full name" value={newLead.name} onChange={(e) => setNewLead({ ...newLead, name: e.target.value })} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
+              {addLeadStep === 'project' ? (
+                <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
-                    <Label>Email *</Label>
-                    <Input type="email" placeholder="email@example.com" value={newLead.email} onChange={(e) => setNewLead({ ...newLead, email: e.target.value })} />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Phone *</Label>
-                    <Input placeholder="+91 98765 43210" value={newLead.phone} onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label>Project</Label>
-                    <Input
-                      placeholder="Project ID (optional)"
-                      value={newLead.project}
-                      onChange={(e) => setNewLead({ ...newLead, project: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Budget</Label>
-                    <Input placeholder="₹50L - ₹1Cr" value={newLead.budget} onChange={(e) => setNewLead({ ...newLead, budget: e.target.value })} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label>Source</Label>
-                    <Select value={newLead.source} onValueChange={(v) => setNewLead({ ...newLead, source: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                    <Label>Select Project First</Label>
+                    <Select
+                      value={newLead.project ? String(newLead.project) : 'none'}
+                      onValueChange={(v) => {
+                        const nextProject = v === 'none' ? '' : v;
+                        setNewLead({ ...newLead, project: nextProject });
+                        setNewDynamicData({});
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
                       <SelectContent className="bg-popover">
-                        <SelectItem value="Website">Website</SelectItem>
-                        <SelectItem value="Facebook">Facebook</SelectItem>
-                        <SelectItem value="Referral">Referral</SelectItem>
-                        <SelectItem value="Walk_in">Walk-in</SelectItem>
-                        <SelectItem value="Google_Ads">Google Ads</SelectItem>
-                        <SelectItem value="Unit_Interest">Unit Interest</SelectItem>
+                        <SelectItem value="none">No Project</SelectItem>
+                        {projectSelectOptions.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Priority</Label>
-                    <Select value={newLead.priority} onValueChange={(v) => setNewLead({ ...newLead, priority: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent className="bg-popover">
-                        <SelectItem value="High">High</SelectItem>
-                        <SelectItem value="Medium">Medium</SelectItem>
-                        <SelectItem value="Low">Low</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <div className="text-xs text-muted-foreground">After selecting a project, its schema fields will appear.</div>
                   </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label>Notes</Label>
-                  <Textarea placeholder="Additional notes..." value={newLead.notes} onChange={(e) => setNewLead({ ...newLead, notes: e.target.value })} />
+              ) : (
+                <div className="grid gap-4 py-4">
+                  {newLeadFields.length === 0 ? (
+                    <>
+                      <div className="grid gap-2">
+                        <Label>Full Name *</Label>
+                        <Input placeholder="Enter full name" value={newLead.name} onChange={(e) => setNewLead({ ...newLead, name: e.target.value })} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                          <Label>Email *</Label>
+                          <Input type="email" placeholder="email@example.com" value={newLead.email} onChange={(e) => setNewLead({ ...newLead, email: e.target.value })} />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label>Phone *</Label>
+                          <Input placeholder="+91 98765 43210" value={newLead.phone} onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                          <Label>Project</Label>
+                          <Select
+                            value={newLead.project ? String(newLead.project) : 'none'}
+                            onValueChange={(v) => {
+                              const nextProject = v === 'none' ? '' : v;
+                              setNewLead({ ...newLead, project: nextProject });
+                              setNewDynamicData({});
+                            }}
+                          >
+                            <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                            <SelectContent className="bg-popover">
+                              <SelectItem value="none">No Project</SelectItem>
+                              {projectSelectOptions.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {p.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid gap-2">
+                          <Label>Budget</Label>
+                          <Input placeholder="₹50L - ₹1Cr" value={newLead.budget} onChange={(e) => setNewLead({ ...newLead, budget: e.target.value })} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                          <Label>Source</Label>
+                          <Select value={newLead.source} onValueChange={(v) => setNewLead({ ...newLead, source: v })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent className="bg-popover">
+                              <SelectItem value="Website">Website</SelectItem>
+                              <SelectItem value="Facebook">Facebook</SelectItem>
+                              <SelectItem value="Referral">Referral</SelectItem>
+                              <SelectItem value="Walk_in">Walk-in</SelectItem>
+                              <SelectItem value="Google_Ads">Google Ads</SelectItem>
+                              <SelectItem value="Unit_Interest">Unit Interest</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid gap-2">
+                          <Label>Priority</Label>
+                          <Select value={newLead.priority} onValueChange={(v) => setNewLead({ ...newLead, priority: v })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent className="bg-popover">
+                              <SelectItem value="High">High</SelectItem>
+                              <SelectItem value="Medium">Medium</SelectItem>
+                              <SelectItem value="Low">Low</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Notes</Label>
+                        <Textarea placeholder="Additional notes..." value={newLead.notes} onChange={(e) => setNewLead({ ...newLead, notes: e.target.value })} />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid gap-2">
+                        <Label>Project</Label>
+                        <Select
+                          value={newLead.project ? String(newLead.project) : 'none'}
+                          onValueChange={(v) => {
+                            const nextProject = v === 'none' ? '' : v;
+                            setNewLead({ ...newLead, project: nextProject });
+                            setNewDynamicData({});
+                          }}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                          <SelectContent className="bg-popover">
+                            <SelectItem value="none">No Project</SelectItem>
+                            {projectSelectOptions.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {(() => {
+                        const keys = getCoreKeys(newLeadFields);
+                        const nameMissing = !keys.nameKey;
+                        const emailMissing = !keys.emailKey;
+                        const phoneMissing = !keys.phoneKey;
+
+                        if (!nameMissing && !emailMissing && !phoneMissing) return null;
+
+                        return (
+                          <div className="grid gap-4">
+                            {nameMissing && (
+                              <div className="grid gap-2">
+                                <Label>Full Name *</Label>
+                                <Input placeholder="Enter full name" value={newLead.name} onChange={(e) => setNewLead({ ...newLead, name: e.target.value })} />
+                              </div>
+                            )}
+
+                            {(emailMissing || phoneMissing) && (
+                              <div className="grid grid-cols-2 gap-4">
+                                {emailMissing && (
+                                  <div className="grid gap-2">
+                                    <Label>Email *</Label>
+                                    <Input type="email" placeholder="email@example.com" value={newLead.email} onChange={(e) => setNewLead({ ...newLead, email: e.target.value })} />
+                                  </div>
+                                )}
+                                {phoneMissing && (
+                                  <div className="grid gap-2">
+                                    <Label>Phone *</Label>
+                                    <Input placeholder="+91 98765 43210" value={newLead.phone} onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })} />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {renderDynamicFields(newLeadFields, newDynamicData, setNewDynamicData)}
+                    </>
+                  )}
+
+                  {newLead.project && newLeadFields.length === 0 && (
+                    <div className="text-xs text-muted-foreground">No custom fields configured for this project.</div>
+                  )}
                 </div>
-              </div>
+              )}
+
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-                <Button onClick={handleAddLead}>Add Lead</Button>
+                <Button variant="outline" onClick={() => {
+                  if (addLeadStep === 'details') {
+                    setAddLeadStep('project');
+                    return;
+                  }
+                  setIsAddOpen(false);
+                }}>
+                  {addLeadStep === 'details' ? 'Back' : 'Cancel'}
+                </Button>
+                {addLeadStep === 'project' ? (
+                  <Button
+                    onClick={() => setAddLeadStep('details')}
+                    disabled={!newLead.project}
+                  >
+                    Next
+                  </Button>
+                ) : (
+                  <Button onClick={handleAddLead}>Add Lead</Button>
+                )}
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -897,67 +1598,143 @@ export const LeadsPage = () => {
             <DialogDescription>Update lead information</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label>Full Name *</Label>
-              <Input placeholder="Enter full name" value={editLead.name} onChange={(e) => setEditLead({ ...editLead, name: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Email *</Label>
-                <Input type="email" placeholder="email@example.com" value={editLead.email} onChange={(e) => setEditLead({ ...editLead, email: e.target.value })} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Phone *</Label>
-                <Input placeholder="+91 98765 43210" value={editLead.phone} onChange={(e) => setEditLead({ ...editLead, phone: e.target.value })} />
-              </div>
-            </div>
+            {editLeadFields.length === 0 ? (
+              <>
+                <div className="grid gap-2">
+                  <Label>Full Name *</Label>
+                  <Input placeholder="Enter full name" value={editLead.name} onChange={(e) => setEditLead({ ...editLead, name: e.target.value })} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label>Email *</Label>
+                    <Input type="email" placeholder="email@example.com" value={editLead.email} onChange={(e) => setEditLead({ ...editLead, email: e.target.value })} />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Phone *</Label>
+                    <Input placeholder="+91 98765 43210" value={editLead.phone} onChange={(e) => setEditLead({ ...editLead, phone: e.target.value })} />
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Project</Label>
-                <Input
-                  placeholder="Project ID (optional)"
-                  value={editLead.project}
-                  onChange={(e) => setEditLead({ ...editLead, project: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Budget</Label>
-                <Input placeholder="₹50L - ₹1Cr" value={editLead.budget} onChange={(e) => setEditLead({ ...editLead, budget: e.target.value })} />
-              </div>
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label>Project</Label>
+                    <Select
+                      value={editLead.project ? String(editLead.project) : 'none'}
+                      onValueChange={(v) => setEditLead({ ...editLead, project: v === 'none' ? '' : v })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                      <SelectContent className="bg-popover">
+                        <SelectItem value="none">No Project</SelectItem>
+                        {projectSelectOptions.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Budget</Label>
+                    <Input placeholder="₹50L - ₹1Cr" value={editLead.budget} onChange={(e) => setEditLead({ ...editLead, budget: e.target.value })} />
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>Source</Label>
-                <Select value={editLead.source} onValueChange={(v) => setEditLead({ ...editLead, source: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-popover">
-                    <SelectItem value="Website">Website</SelectItem>
-                    <SelectItem value="Facebook">Facebook</SelectItem>
-                    <SelectItem value="Referral">Referral</SelectItem>
-                    <SelectItem value="Walk_in">Walk-in</SelectItem>
-                    <SelectItem value="Google_Ads">Google Ads</SelectItem>
-                    <SelectItem value="Unit_Interest">Unit Interest</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>Priority</Label>
-                <Select value={editLead.priority} onValueChange={(v) => setEditLead({ ...editLead, priority: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-popover">
-                    <SelectItem value="High">High</SelectItem>
-                    <SelectItem value="Medium">Medium</SelectItem>
-                    <SelectItem value="Low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label>Notes</Label>
-              <Textarea placeholder="Additional notes..." value={editLead.notes} onChange={(e) => setEditLead({ ...editLead, notes: e.target.value })} />
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label>Source</Label>
+                    <Select value={editLead.source} onValueChange={(v) => setEditLead({ ...editLead, source: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-popover">
+                        <SelectItem value="Website">Website</SelectItem>
+                        <SelectItem value="Facebook">Facebook</SelectItem>
+                        <SelectItem value="Referral">Referral</SelectItem>
+                        <SelectItem value="Walk_in">Walk-in</SelectItem>
+                        <SelectItem value="Google_Ads">Google Ads</SelectItem>
+                        <SelectItem value="Unit_Interest">Unit Interest</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Priority</Label>
+                    <Select value={editLead.priority} onValueChange={(v) => setEditLead({ ...editLead, priority: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-popover">
+                        <SelectItem value="High">High</SelectItem>
+                        <SelectItem value="Medium">Medium</SelectItem>
+                        <SelectItem value="Low">Low</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Notes</Label>
+                  <Textarea placeholder="Additional notes..." value={editLead.notes} onChange={(e) => setEditLead({ ...editLead, notes: e.target.value })} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="grid gap-2">
+                  <Label>Project</Label>
+                  <Select
+                    value={editLead.project ? String(editLead.project) : 'none'}
+                    onValueChange={(v) => setEditLead({ ...editLead, project: v === 'none' ? '' : v })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                    <SelectContent className="bg-popover">
+                      <SelectItem value="none">No Project</SelectItem>
+                      {projectSelectOptions.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {(() => {
+                  const keys = getCoreKeys(editLeadFields);
+                  const nameMissing = !keys.nameKey;
+                  const emailMissing = !keys.emailKey;
+                  const phoneMissing = !keys.phoneKey;
+
+                  if (!nameMissing && !emailMissing && !phoneMissing) return null;
+
+                  return (
+                    <div className="grid gap-4">
+                      {nameMissing && (
+                        <div className="grid gap-2">
+                          <Label>Full Name *</Label>
+                          <Input placeholder="Enter full name" value={editLead.name} onChange={(e) => setEditLead({ ...editLead, name: e.target.value })} />
+                        </div>
+                      )}
+
+                      {(emailMissing || phoneMissing) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {emailMissing && (
+                            <div className="grid gap-2">
+                              <Label>Email *</Label>
+                              <Input type="email" placeholder="email@example.com" value={editLead.email} onChange={(e) => setEditLead({ ...editLead, email: e.target.value })} />
+                            </div>
+                          )}
+                          {phoneMissing && (
+                            <div className="grid gap-2">
+                              <Label>Phone *</Label>
+                              <Input placeholder="+91 98765 43210" value={editLead.phone} onChange={(e) => setEditLead({ ...editLead, phone: e.target.value })} />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {renderDynamicFields(editLeadFields, editDynamicData, setEditDynamicData)}
+              </>
+            )}
+
+            {editLead.project && editLeadFields.length === 0 && (
+              <div className="text-xs text-muted-foreground">No custom fields configured for this project.</div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
