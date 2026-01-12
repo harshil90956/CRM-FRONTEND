@@ -32,6 +32,7 @@ import { useEffect, useState } from "react";
 import { Fragment } from "react";
 import { leadsService } from "@/api";
 import type { LeadDb } from "@/api/services/leads.service";
+import { useAppStore } from "@/stores/appStore";
 
 const getStatusStyle = (status: string) => {
   const styles: Record<string, string> = {
@@ -52,6 +53,7 @@ interface LeadsTableProps {
 
 export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
   const { toast } = useToast();
+  const { currentUser } = useAppStore();
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -72,7 +74,13 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await leadsService.list();
+        const role = String(currentUser?.role || '').toUpperCase();
+        const res =
+          role === 'ADMIN' || role === 'SUPER_ADMIN'
+            ? await leadsService.listAdminLeads()
+            : role === 'MANAGER'
+              ? ({ success: true, data: await leadsService.listManagerLeads() } as any)
+              : await leadsService.list();
         if (!res.success) {
           throw new Error(res.message || 'Failed to load leads');
         }
@@ -85,7 +93,7 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
         });
       }
     })();
-  }, [toast]);
+  }, [toast, currentUser?.role]);
 
   // Handler functions
   const handleViewDetails = (lead: any) => {

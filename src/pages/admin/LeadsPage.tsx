@@ -63,7 +63,7 @@ import { LeadCalendarView } from "@/components/leads/LeadCalendarView";
 import { ViewMode } from "@/components/leads/ViewToggle";
 import { DatePreset } from "@/components/leads/DateRangePicker";
 import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
-import { leadsService, projectsService, staffService } from "@/api";
+import { adminUsersService, leadsService, projectsService } from "@/api";
 import type { LeadDb, LeadField } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -412,11 +412,12 @@ export const LeadsPage = () => {
   useEffect(() => {
     (async () => {
       try {
-        const res = await staffService.list({ role: 'AGENT' });
+        const res = await adminUsersService.list();
         if (!res.success) {
           throw new Error(res.message || 'Failed to load staff');
         }
         const options = (res.data || [])
+          .filter((s) => String((s as any).role).toUpperCase() === 'AGENT')
           .filter((s) => (s as any).isActive !== false)
           .map((s) => ({ id: s.id, name: s.name }));
         setStaffOptions(options);
