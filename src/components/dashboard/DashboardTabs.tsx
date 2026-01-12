@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { TrendingUp, Users, DollarSign, Target, Building2, MessageSquare, CheckSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,8 +27,14 @@ const tabs: { id: DashboardTab; label: string; icon: React.ReactNode }[] = [
 
 export const DashboardTabs = ({ activeTab, onChange }: DashboardTabsProps) => {
   return (
-    <div className="flex items-center justify-center border-b border-border bg-background">
-      <div className="flex flex-wrap items-center justify-center gap-1 py-2 px-4 max-w-full">
+    <div className="w-full border-b border-border bg-background">
+      <div
+        className={cn(
+          "flex w-full items-center gap-1 py-2 px-4 overflow-x-auto flex-nowrap",
+          "[&::-webkit-scrollbar]:hidden"
+        )}
+        style={{ scrollbarWidth: 'none' as any, msOverflowStyle: 'none' as any }}
+      >
         {tabs.map((tab) => (
           <button
             key={tab.id}

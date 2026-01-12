@@ -208,7 +208,7 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{lead.projectId || 'N/A'}</TableCell>
+                <TableCell className="text-muted-foreground">{lead.project?.name || lead.projectId || 'N/A'}</TableCell>
                 <TableCell className="text-muted-foreground">{lead.budget}</TableCell>
                 <TableCell>
                   <span className={cn("status-badge", getStatusStyle(lead.status))}>
