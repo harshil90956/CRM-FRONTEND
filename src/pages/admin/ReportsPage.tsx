@@ -214,8 +214,8 @@ export const ReportsPage = () => {
       const rows = purchaseData.map(p => [p.vendor, p.quantity]);
       downloadCsv("purchase-report", headers, rows);
     } else if (activeTab === "financial") {
-      const headers = ["Month", "Income", "Expenses", "Profit"];
-      const rows = financialData.map(f => [f.month, f.income, f.expenses, f.profit]);
+      const headers = ["Month", "Collected"];
+      const rows = financialData.map(f => [f.month, f.income]);
       downloadCsv("financial-report", headers, rows);
     } else if (activeTab === "staff") {
       const headers = ["Name", "Role", "Leads", "Conversions", "Revenue"];
@@ -355,7 +355,7 @@ export const ReportsPage = () => {
             value="stock" 
             className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-2.5"
           >
-            Stock Reports
+            Inventory Reports
           </TabsTrigger>
           <TabsTrigger 
             value="sales"
@@ -367,7 +367,7 @@ export const ReportsPage = () => {
             value="purchase"
             className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-2.5"
           >
-            Purchase Reports
+            Lead Source Reports
           </TabsTrigger>
           <TabsTrigger 
             value="financial"

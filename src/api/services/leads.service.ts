@@ -12,7 +12,15 @@ export type LeadDb = {
   notes?: string | null;
   dynamicData?: Record<string, any> | null;
   projectId?: string | null;
+  project?: {
+    id: string;
+    name: string;
+  } | null;
   assignedToId?: string | null;
+  assignedTo?: {
+    id: string;
+    name: string;
+  } | null;
   tenantId: string;
   createdAt: string;
 };

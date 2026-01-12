@@ -24,8 +24,7 @@ import { DashboardTabs, DashboardTab } from "@/components/dashboard/DashboardTab
 import { LiveMetricsCard } from "@/components/dashboard/LiveMetricsCard";
 import { SummaryKPICard } from "@/components/dashboard/SummaryKPICard";
 import { useToast } from "@/hooks/use-toast";
-import { leadsService } from "@/api";
-import { mockApi } from "@/lib/mockApi";
+import { leadsService, projectsService, unitsService } from "@/api";
 import { useAppStore } from "@/stores/appStore";
 
 const leadFields = ["name", "email", "phone", "status", "project", "budget"];
@@ -61,13 +60,118 @@ export const ManagerDashboard = () => {
     loadMetrics();
   }, []);
 
+  const downloadSampleCSV = (type: string) => {
+    const headersByType: Record<string, string[]> = {
+      leads: ['name', 'email', 'phone', 'status', 'project', 'budget'],
+    };
+
+    const headers = headersByType[type] || ['id'];
+    const csv = `${headers.join(',')}\n`;
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}-sample.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const loadMetrics = async () => {
     setIsLoading(true);
     try {
-      const data = await mockApi.getDashboardMetrics();
-      setMetrics(data);
+      const now = new Date();
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+      const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      const createdDayKey = (iso?: string) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (!Number.isFinite(d.getTime())) return '';
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      };
+
+      const createdMonthKey = (iso?: string) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (!Number.isFinite(d.getTime())) return '';
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      };
+
+      const parseBudget = (b: unknown): number => {
+        if (typeof b === 'number' && Number.isFinite(b)) return b;
+        if (typeof b !== 'string') return 0;
+        const cleaned = b.replace(/[^0-9.]/g, '');
+        const n = Number(cleaned);
+        return Number.isFinite(n) ? n : 0;
+      };
+
+      const [paged, summary, agents, projectsRes, unitsRes] = await Promise.all([
+        leadsService.getManagerLeads({ page: 1, pageSize: 500 }),
+        leadsService.getManagerLeadsSummary().catch(() => ({ total: 0, new: 0, qualified: 0, converted: 0 } as any)),
+        leadsService.getManagerAgents().catch(() => []),
+        projectsService.list().catch(() => ({ success: true, data: [] } as any)),
+        unitsService.list().catch(() => ({ success: true, data: [] } as any)),
+      ]);
+
+      const leads = (paged?.items || []) as any[];
+      const leadTotal = Number((summary as any)?.total ?? leads.length);
+
+      const newToday = leads.filter((l) => createdDayKey(l.createdAt) === todayKey).length;
+      const newYesterday = leads.filter((l) => createdDayKey(l.createdAt) === yesterdayKey).length;
+
+      const activeLeadStatuses = new Set(['NEW', 'CONTACTED', 'FOLLOWUP', 'QUALIFIED', 'NEGOTIATION']);
+      const activeLeads = leads.filter((l) => activeLeadStatuses.has(String(l.status))).length;
+      const closedDeals = leads.filter((l) => String(l.status) === 'CONVERTED').length;
+      const conversionRate = leadTotal > 0 ? Math.round((closedDeals / leadTotal) * 100) : 0;
+      const leadsThisMonth = leads.filter((l) => createdMonthKey(l.createdAt) === monthKey).length;
+
+      const convertedThisMonth = leads
+        .filter((l) => String(l.status) === 'CONVERTED')
+        .filter((l) => createdMonthKey(l.createdAt) === monthKey);
+      const revenueThisMonth = convertedThisMonth.reduce((sum, l) => sum + parseBudget(l.budget), 0);
+
+      const projects = projectsRes?.success ? (projectsRes.data || []) : [];
+      const units = unitsRes?.success ? (unitsRes.data || []) : [];
+      const activeProperties = projects.filter((p: any) => !p.isClosed && String(p.status).toUpperCase() !== 'CLOSED').length;
+
+      setMetrics({
+        totalLeads: leadTotal,
+        newToday,
+        newYesterday,
+        activeLeads,
+        conversionRate,
+        closedDeals,
+        communications: 0,
+        pendingTasks: 0,
+        overdueTasks: 0,
+        leadsThisMonth,
+        revenueThisMonth,
+        activeProperties,
+        _raw: { leads, agents, projects, units },
+      });
     } catch (error) {
       console.error('Failed to load metrics:', error);
+      setMetrics({
+        totalLeads: 0,
+        newToday: 0,
+        newYesterday: 0,
+        activeLeads: 0,
+        conversionRate: 0,
+        closedDeals: 0,
+        communications: 0,
+        pendingTasks: 0,
+        overdueTasks: 0,
+        leadsThisMonth: 0,
+        revenueThisMonth: 0,
+        activeProperties: 0,
+        _raw: { leads: [], agents: [], projects: [], units: [] },
+      });
     } finally {
       setIsLoading(false);
     }
@@ -84,7 +188,7 @@ export const ManagerDashboard = () => {
   };
 
   const handleDownloadSampleCSV = () => {
-    mockApi.downloadSampleCSV('leads');
+    downloadSampleCSV('leads');
     toast({
       title: "Sample CSV Downloaded",
       description: "Check your downloads folder for the sample format file.",
@@ -228,7 +332,7 @@ export const ManagerDashboard = () => {
             />
             <LiveMetricsCard
               title="Target Progress"
-              value={`${Math.round((metrics?.closedDeals || 0) / goals.conversionsTarget * 100)}%`}
+              value={`${goals.conversionsTarget > 0 ? Math.round(((metrics?.closedDeals || 0) / goals.conversionsTarget) * 100) : 0}%`}
               subtitle={`${metrics?.closedDeals || 0}/${goals.conversionsTarget} conversions`}
               icon={Target}
               iconColor="text-warning"
@@ -315,22 +419,28 @@ export const ManagerDashboard = () => {
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Lead Sources</h4>
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Website</span>
-                  <span className="text-sm font-medium">45%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Referrals</span>
-                  <span className="text-sm font-medium">25%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Social Media</span>
-                  <span className="text-sm font-medium">20%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Direct</span>
-                  <span className="text-sm font-medium">10%</span>
-                </div>
+                {(() => {
+                  const leads = (metrics?._raw?.leads || []) as any[];
+                  const total = leads.length || 0;
+                  const counts = new Map<string, number>();
+                  for (const l of leads) {
+                    const key = String(l.source || 'Unknown');
+                    counts.set(key, (counts.get(key) || 0) + 1);
+                  }
+                  const rows = Array.from(counts.entries())
+                    .map(([k, c]) => ({ k, c, pct: total > 0 ? Math.round((c / total) * 100) : 0 }))
+                    .sort((a, b) => b.c - a.c)
+                    .slice(0, 4);
+                  if (rows.length === 0) {
+                    return <div className="text-sm text-muted-foreground">No data yet.</div>;
+                  }
+                  return rows.map((r) => (
+                    <div key={r.k} className="flex justify-between">
+                      <span className="text-sm text-muted-foreground">{r.k}</span>
+                      <span className="text-sm font-medium">{r.pct}%</span>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
@@ -338,37 +448,47 @@ export const ManagerDashboard = () => {
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <span className="text-sm text-muted-foreground">Total Leads</span>
-                  <span className="text-sm font-medium">1,245</span>
+                  <span className="text-sm font-medium">{Number(metrics?.totalLeads || 0).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-sm text-muted-foreground">Qualified</span>
-                  <span className="text-sm font-medium">623</span>
+                  <span className="text-sm font-medium">{Number((metrics?._raw?.leads || []).filter((l: any) => String(l.status) === 'QUALIFIED').length || 0).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Proposals</span>
-                  <span className="text-sm font-medium">187</span>
+                  <span className="text-sm text-muted-foreground">Negotiation</span>
+                  <span className="text-sm font-medium">{Number((metrics?._raw?.leads || []).filter((l: any) => String(l.status) === 'NEGOTIATION').length || 0).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-sm text-muted-foreground">Closed Deals</span>
-                  <span className="text-sm font-medium">62</span>
+                  <span className="text-sm font-medium">{Number(metrics?.closedDeals || 0).toLocaleString()}</span>
                 </div>
               </div>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Lead Quality</h4>
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Hot Leads</span>
-                  <span className="text-sm font-medium text-success">156</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Warm Leads</span>
-                  <span className="text-sm font-medium text-warning">312</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Cold Leads</span>
-                  <span className="text-sm font-medium text-muted">777</span>
-                </div>
+                {(() => {
+                  const leads = (metrics?._raw?.leads || []) as any[];
+                  const hot = leads.filter((l) => String(l.priority).toLowerCase() === 'high').length;
+                  const warm = leads.filter((l) => String(l.priority).toLowerCase() === 'medium').length;
+                  const cold = leads.length - hot - warm;
+                  return (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Hot Leads</span>
+                        <span className="text-sm font-medium text-success">{hot}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Warm Leads</span>
+                        <span className="text-sm font-medium text-warning">{warm}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Cold Leads</span>
+                        <span className="text-sm font-medium text-muted">{Math.max(0, cold)}</span>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -381,23 +501,25 @@ export const ManagerDashboard = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Monthly Revenue</h4>
-              <p className="text-2xl font-bold text-primary">₹2.4 Cr</p>
-              <p className="text-sm text-success">+12% from last month</p>
+              <p className="text-2xl font-bold text-primary">{formatCurrency(Number(metrics?.revenueThisMonth || 0))}</p>
+              <p className="text-sm text-muted-foreground">Based on converted leads budget</p>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Average Deal Size</h4>
-              <p className="text-2xl font-bold text-primary">₹38.7 L</p>
-              <p className="text-sm text-success">+8% from last month</p>
+              <p className="text-2xl font-bold text-primary">
+                {formatCurrency((metrics?.closedDeals || 0) > 0 ? Number(metrics?.revenueThisMonth || 0) / Number(metrics?.closedDeals || 1) : 0)}
+              </p>
+              <p className="text-sm text-muted-foreground">This month</p>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Sales Cycle</h4>
-              <p className="text-2xl font-bold text-primary">45 days</p>
-              <p className="text-sm text-warning">-3 days from target</p>
+              <p className="text-2xl font-bold text-primary">—</p>
+              <p className="text-sm text-muted-foreground">No data yet</p>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Win Rate</h4>
-              <p className="text-2xl font-bold text-primary">33%</p>
-              <p className="text-sm text-success">+5% from last month</p>
+              <p className="text-2xl font-bold text-primary">{metrics?.conversionRate || 0}%</p>
+              <p className="text-sm text-muted-foreground">Converted / total</p>
             </div>
           </div>
         </div>
@@ -410,52 +532,106 @@ export const ManagerDashboard = () => {
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Top Performers</h4>
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm">Rahul Verma</span>
-                  <span className="text-sm font-medium text-success">18 deals</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Priya Sharma</span>
-                  <span className="text-sm font-medium text-success">15 deals</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Amit Patel</span>
-                  <span className="text-sm font-medium text-success">12 deals</span>
-                </div>
+                {(() => {
+                  const agents = (metrics?._raw?.agents || []) as any[];
+                  const leads = (metrics?._raw?.leads || []) as any[];
+                  const convById = new Map<string, number>();
+                  for (const l of leads) {
+                    const assignedId = String(l?.assignedTo?.id || l?.assignedToId || '');
+                    if (!assignedId) continue;
+                    if (String(l.status) === 'CONVERTED') {
+                      convById.set(assignedId, (convById.get(assignedId) || 0) + 1);
+                    }
+                  }
+
+                  const rows = agents
+                    .map((a) => ({ name: String(a.name || 'Agent'), deals: convById.get(String(a.id)) || 0 }))
+                    .sort((a, b) => b.deals - a.deals)
+                    .slice(0, 3);
+
+                  if (rows.length === 0) {
+                    return <div className="text-sm text-muted-foreground">No data yet.</div>;
+                  }
+
+                  return rows.map((r) => (
+                    <div key={r.name} className="flex justify-between">
+                      <span className="text-sm">{r.name}</span>
+                      <span className="text-sm font-medium text-success">{r.deals} deals</span>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Team Metrics</h4>
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Team Size</span>
-                  <span className="text-sm font-medium">12 agents</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Avg. Deals/Agent</span>
-                  <span className="text-sm font-medium">5.2</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Team Target</span>
-                  <span className="text-sm font-medium">60 deals</span>
-                </div>
+                {(() => {
+                  const agents = (metrics?._raw?.agents || []) as any[];
+                  const teamSize = agents.length;
+                  const totalLeads = Number(metrics?.totalLeads || 0);
+                  const avg = teamSize > 0 ? (totalLeads / teamSize).toFixed(1) : '0';
+                  return (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Team Size</span>
+                        <span className="text-sm font-medium">{teamSize} agents</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Avg. Leads/Agent</span>
+                        <span className="text-sm font-medium">{avg}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Team Target</span>
+                        <span className="text-sm font-medium">{Number(goals?.conversionsTarget || 0)} deals</span>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Performance Rating</h4>
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Excellent</span>
-                  <span className="text-sm font-medium text-success">4 agents</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Good</span>
-                  <span className="text-sm font-medium text-warning">6 agents</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Needs Improvement</span>
-                  <span className="text-sm font-medium text-destructive">2 agents</span>
-                </div>
+                {(() => {
+                  const agents = (metrics?._raw?.agents || []) as any[];
+                  const leads = (metrics?._raw?.leads || []) as any[];
+                  const convById = new Map<string, number>();
+                  for (const l of leads) {
+                    const assignedId = String(l?.assignedTo?.id || l?.assignedToId || '');
+                    if (!assignedId) continue;
+                    if (String(l.status) === 'CONVERTED') {
+                      convById.set(assignedId, (convById.get(assignedId) || 0) + 1);
+                    }
+                  }
+
+                  let excellent = 0;
+                  let good = 0;
+                  let needs = 0;
+
+                  for (const a of agents) {
+                    const c = convById.get(String(a.id)) || 0;
+                    if (c >= 5) excellent += 1;
+                    else if (c >= 2) good += 1;
+                    else needs += 1;
+                  }
+
+                  return (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Excellent</span>
+                        <span className="text-sm font-medium text-success">{excellent} agents</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Good</span>
+                        <span className="text-sm font-medium text-warning">{good} agents</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Needs Improvement</span>
+                        <span className="text-sm font-medium text-destructive">{needs} agents</span>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -468,23 +644,53 @@ export const ManagerDashboard = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Total Properties</h4>
-              <p className="text-2xl font-bold text-primary">245</p>
-              <p className="text-sm text-muted-foreground">Across 12 projects</p>
+              <p className="text-2xl font-bold text-primary">{Number((metrics?._raw?.units || []).length || 0).toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground">Across {Number((metrics?._raw?.projects || []).length || 0).toLocaleString()} projects</p>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Available</h4>
-              <p className="text-2xl font-bold text-success">89</p>
-              <p className="text-sm text-success">36% availability</p>
+              {(() => {
+                const units = (metrics?._raw?.units || []) as any[];
+                const total = units.length || 0;
+                const available = units.filter((u) => String(u.status) === 'AVAILABLE').length;
+                const pct = total > 0 ? Math.round((available / total) * 100) : 0;
+                return (
+                  <>
+                    <p className="text-2xl font-bold text-success">{available}</p>
+                    <p className="text-sm text-success">{pct}% availability</p>
+                  </>
+                );
+              })()}
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Booked</h4>
-              <p className="text-2xl font-bold text-warning">124</p>
-              <p className="text-sm text-warning">51% booked</p>
+              {(() => {
+                const units = (metrics?._raw?.units || []) as any[];
+                const total = units.length || 0;
+                const booked = units.filter((u) => String(u.status) === 'BOOKED').length;
+                const pct = total > 0 ? Math.round((booked / total) * 100) : 0;
+                return (
+                  <>
+                    <p className="text-2xl font-bold text-warning">{booked}</p>
+                    <p className="text-sm text-warning">{pct}% booked</p>
+                  </>
+                );
+              })()}
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Sold</h4>
-              <p className="text-2xl font-bold text-primary">32</p>
-              <p className="text-sm text-muted-foreground">13% sold</p>
+              {(() => {
+                const units = (metrics?._raw?.units || []) as any[];
+                const total = units.length || 0;
+                const sold = units.filter((u) => String(u.status) === 'SOLD').length;
+                const pct = total > 0 ? Math.round((sold / total) * 100) : 0;
+                return (
+                  <>
+                    <p className="text-2xl font-bold text-primary">{sold}</p>
+                    <p className="text-sm text-muted-foreground">{pct}% sold</p>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -497,52 +703,19 @@ export const ManagerDashboard = () => {
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Email Campaigns</h4>
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Sent Today</span>
-                  <span className="text-sm font-medium">245</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Open Rate</span>
-                  <span className="text-sm font-medium text-success">68%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Click Rate</span>
-                  <span className="text-sm font-medium">12%</span>
-                </div>
+                <div className="text-sm text-muted-foreground">No data yet.</div>
               </div>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Phone Calls</h4>
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Calls Made</span>
-                  <span className="text-sm font-medium">156</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Connected</span>
-                  <span className="text-sm font-medium text-success">89</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Avg. Duration</span>
-                  <span className="text-sm font-medium">4:32</span>
-                </div>
+                <div className="text-sm text-muted-foreground">No data yet.</div>
               </div>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Meetings</h4>
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Scheduled</span>
-                  <span className="text-sm font-medium">34</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Completed</span>
-                  <span className="text-sm font-medium text-success">28</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Show Rate</span>
-                  <span className="text-sm font-medium">82%</span>
-                </div>
+                <div className="text-sm text-muted-foreground">No data yet.</div>
               </div>
             </div>
           </div>
@@ -557,51 +730,22 @@ export const ManagerDashboard = () => {
               <h4 className="font-medium text-foreground mb-2">Pending Tasks</h4>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">High Priority</span>
-                  <span className="text-sm font-medium text-destructive">12</span>
+                  <span className="text-sm text-muted-foreground">Total</span>
+                  <span className="text-sm font-medium">{Number(metrics?.pendingTasks || 0)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Medium Priority</span>
-                  <span className="text-sm font-medium text-warning">28</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Low Priority</span>
-                  <span className="text-sm font-medium">45</span>
-                </div>
+                <div className="text-sm text-muted-foreground">No task module connected yet.</div>
               </div>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Today's Activity</h4>
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Calls Made</span>
-                  <span className="text-sm font-medium">45</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Emails Sent</span>
-                  <span className="text-sm font-medium">67</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Meetings</span>
-                  <span className="text-sm font-medium">8</span>
-                </div>
+                <div className="text-sm text-muted-foreground">No activity tracking connected yet.</div>
               </div>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Upcoming</h4>
               <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Follow-ups</span>
-                  <span className="text-sm font-medium">23</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Site Visits</span>
-                  <span className="text-sm font-medium">15</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Closings</span>
-                  <span className="text-sm font-medium text-success">3</span>
-                </div>
+                <div className="text-sm text-muted-foreground">No upcoming schedule connected yet.</div>
               </div>
             </div>
           </div>
