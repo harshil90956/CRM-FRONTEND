@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -25,12 +25,9 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-const performanceData = [
-  { week: "W1", leads: 8, conversions: 1 },
-  { week: "W2", leads: 12, conversions: 2 },
-  { week: "W3", leads: 10, conversions: 1 },
-  { week: "W4", leads: 15, conversions: 3 },
-];
+import { leadsService } from "@/api";
+
+type PerfRow = { week: string; leads: number; conversions: number };
 
 const upcomingTasks = [
   { id: 1, type: "call", title: "Follow up with Rajesh Kumar", time: "10:00 AM", icon: Phone },
@@ -41,6 +38,75 @@ const upcomingTasks = [
 export const AgentDashboard = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [isGoalsSheetOpen, setIsGoalsSheetOpen] = useState(false);
+  const [leads, setLeads] = useState<any[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await leadsService.listAgentLeads();
+        if (!res.success) return;
+        setLeads(res.data || []);
+      } catch {
+        setLeads([]);
+      }
+    })();
+  }, []);
+
+  const parseBudget = (b: unknown): number => {
+    if (typeof b === 'number' && Number.isFinite(b)) return b;
+    if (typeof b !== 'string') return 0;
+    const cleaned = b.replace(/[^0-9.]/g, '');
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const metrics = useMemo(() => {
+    const total = leads.length;
+    const conversions = leads.filter((l) => String(l.status) === 'CONVERTED').length;
+    const conversionRate = total > 0 ? Math.round((conversions / total) * 1000) / 10 : 0;
+
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const createdMonthKey = (iso?: string) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (!Number.isFinite(d.getTime())) return '';
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+
+    const revenueThisMonth = leads
+      .filter((l) => String(l.status) === 'CONVERTED')
+      .filter((l) => createdMonthKey(l.createdAt) === monthKey)
+      .reduce((sum, l) => sum + parseBudget(l.budget), 0);
+
+    const commissionThisMonth = Math.round(revenueThisMonth * 0.01);
+
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const startOfWeekIndex = (d: Date) => Math.floor((d.getTime() - (now.getTime() - 3 * weekMs)) / weekMs);
+    const buckets: PerfRow[] = [
+      { week: 'W1', leads: 0, conversions: 0 },
+      { week: 'W2', leads: 0, conversions: 0 },
+      { week: 'W3', leads: 0, conversions: 0 },
+      { week: 'W4', leads: 0, conversions: 0 },
+    ];
+
+    for (const l of leads) {
+      const d = new Date(l.createdAt);
+      if (!Number.isFinite(d.getTime())) continue;
+      const idx = startOfWeekIndex(d);
+      if (idx < 0 || idx > 3) continue;
+      buckets[idx].leads += 1;
+      if (String(l.status) === 'CONVERTED') buckets[idx].conversions += 1;
+    }
+
+    return {
+      total,
+      conversions,
+      conversionRate,
+      commissionThisMonth,
+      performanceData: buckets,
+    };
+  }, [leads]);
 
   return (
     <PageWrapper
@@ -58,35 +124,31 @@ export const AgentDashboard = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KPICard
           title="My Leads"
-          value="45"
-          change={5}
-          changeLabel="new this week"
+          value={String(metrics.total)}
+          changeLabel="assigned"
           icon={Users}
           delay={0}
         />
         <KPICard
           title="Conversions"
-          value="12"
-          change={2}
-          changeLabel="this month"
+          value={String(metrics.conversions)}
+          changeLabel="total"
           icon={TrendingUp}
           iconColor="text-success"
           delay={0.1}
         />
         <KPICard
           title="Conversion Rate"
-          value="26.7%"
-          change={3}
-          changeLabel="vs avg"
+          value={`${metrics.conversionRate}%`}
+          changeLabel="from assigned"
           icon={Target}
           iconColor="text-warning"
           delay={0.2}
         />
         <KPICard
           title="Commission"
-          value="₹4.2L"
-          change={18}
-          changeLabel="this month"
+          value={`₹${Number(metrics.commissionThisMonth || 0).toLocaleString()}`}
+          changeLabel="est. this month"
           icon={IndianRupee}
           iconColor="text-primary"
           delay={0.3}
@@ -107,7 +169,7 @@ export const AgentDashboard = () => {
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={performanceData}>
+              <LineChart data={metrics.performanceData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis
                   dataKey="week"

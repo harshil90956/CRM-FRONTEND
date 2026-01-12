@@ -38,7 +38,9 @@ export const LeadFunnelChart = () => {
             ? await leadsService.listAdminLeads()
             : role === 'MANAGER'
               ? ({ success: true, data: await leadsService.listManagerLeads() } as any)
-              : await leadsService.list();
+              : role === 'AGENT'
+                ? await leadsService.listAgentLeads()
+                : await leadsService.list();
         const leads = res.success ? (res.data || []) : [];
 
         const next = baseRows.map((r) => ({ ...r }));

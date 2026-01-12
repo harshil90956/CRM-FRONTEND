@@ -80,7 +80,9 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
             ? await leadsService.listAdminLeads()
             : role === 'MANAGER'
               ? ({ success: true, data: await leadsService.listManagerLeads() } as any)
-              : await leadsService.list();
+              : role === 'AGENT'
+                ? await leadsService.listAgentLeads()
+                : await leadsService.list();
         if (!res.success) {
           throw new Error(res.message || 'Failed to load leads');
         }
@@ -215,7 +217,7 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
                     {lead.status}
                   </span>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{lead.assignedToId || 'Unassigned'}</TableCell>
+                <TableCell className="text-muted-foreground">{lead.assignedTo?.name || lead.assignedToId || 'Unassigned'}</TableCell>
                 <TableCell>
                   <Badge variant="outline" className="font-normal">
                     {lead.source}

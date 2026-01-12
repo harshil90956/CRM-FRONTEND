@@ -209,7 +209,7 @@ export const AgentLeadsPage = () => {
     return map;
   }, [projects]);
 
-  const myLeads = currentUser?.id ? leadsData.filter((l) => l.assignedToId === currentUser.id) : [];
+  const myLeads = leadsData;
   const filteredLeads = myLeads.filter(l => {
     const matchesSearch = l.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || l.status === statusFilter;
