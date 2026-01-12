@@ -26,6 +26,7 @@ interface Tenant {
 interface AppState {
   currentUser: CurrentUser | null;
   isAuthenticated: boolean;
+  authChecked: boolean;
   sendOtp: (email: string) => Promise<void>;
   login: (email: string, otp: string) => Promise<CurrentUser | null>;
   logout: () => void;
@@ -47,6 +48,7 @@ const AppContext = createContext<AppState | undefined>(undefined);
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [goals, setGoalsState] = useState({ monthlyTarget: 100, leadsTarget: 200, conversionsTarget: 25 });
   const [dateRange, setDateRange] = useState(30);
@@ -55,7 +57,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const getStoredToken = (): string | null => {
     if (typeof window === 'undefined') return null;
-    const keys = ['crm_accessToken', 'accessToken', 'token'];
+    const keys = ['crm_accessToken', 'auth_token', 'accessToken', 'token'];
 
     for (const k of keys) {
       const v = localStorage.getItem(k);
@@ -72,7 +74,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const clearStoredToken = () => {
     if (typeof window === 'undefined') return;
-    const keys = ['crm_accessToken', 'accessToken', 'token'];
+    const keys = ['crm_accessToken', 'auth_token', 'accessToken', 'token'];
     for (const k of keys) {
       localStorage.removeItem(k);
       sessionStorage.removeItem(k);
@@ -83,16 +85,23 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     void (async () => {
       if (typeof window === 'undefined') return;
       const token = getStoredToken();
-      if (!token) return;
+      if (!token) {
+        setAuthChecked(true);
+        return;
+      }
 
       try {
         const me = await httpClient.rawGet<CurrentUser>('/auth/me');
         setCurrentUser(me);
         setIsAuthenticated(true);
       } catch {
-        clearStoredToken();
+        if (getStoredToken() === token) {
+          clearStoredToken();
+        }
         setCurrentUser(null);
         setIsAuthenticated(false);
+      } finally {
+        setAuthChecked(true);
       }
     })();
   }, []);
@@ -136,6 +145,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       if (typeof window !== 'undefined') {
         localStorage.setItem('crm_accessToken', accessToken);
         sessionStorage.setItem('crm_accessToken', accessToken);
+        localStorage.setItem('auth_token', accessToken);
+        sessionStorage.setItem('auth_token', accessToken);
       }
 
       setCurrentUser(user);
@@ -183,7 +194,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AppContext.Provider value={{
-      currentUser, isAuthenticated, sendOtp, login, logout,
+      currentUser, isAuthenticated, authChecked, sendOtp, login, logout,
       updateCurrentUser,
       tenants, addTenant, updateTenant, goals, setGoals,
       dateRange, setDateRange, leads, addLeads, isLoading,

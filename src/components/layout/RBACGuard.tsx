@@ -13,8 +13,12 @@ interface RBACGuardProps {
 }
 
 export const RBACGuard = ({ children, allowedRoles, redirectTo = "/" }: RBACGuardProps) => {
-  const { currentUser, isAuthenticated } = useAppStore();
+  const { currentUser, isAuthenticated, authChecked } = useAppStore();
   const location = useLocation();
+
+  if (!authChecked) {
+    return null;
+  }
 
   // Not authenticated - redirect to login
   if (!isAuthenticated || !currentUser) {

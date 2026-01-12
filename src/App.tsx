@@ -8,6 +8,7 @@ import { AppProvider } from "@/stores/appStore";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import { LoginPage } from "./pages/LoginPage";
+import { RBACGuard } from "./components/layout/RBACGuard";
 
 // Layouts
 import { DashboardLayout } from "./components/layout/DashboardLayout";
@@ -80,7 +81,14 @@ const App = () => (
             <Route path="/login" element={<LoginPage />} />
 
             {/* Super Admin Routes */}
-            <Route path="/super-admin" element={<DashboardLayout role="super-admin" />}>
+            <Route
+              path="/super-admin"
+              element={(
+                <RBACGuard allowedRoles={["SUPER_ADMIN"]}>
+                  <DashboardLayout role="super-admin" />
+                </RBACGuard>
+              )}
+            >
               <Route index element={<SuperAdminDashboard />} />
               <Route path="tenants" element={<TenantsPage />} />
               <Route path="users" element={<GlobalUsersPage />} />
@@ -90,7 +98,14 @@ const App = () => (
             </Route>
 
             {/* Admin Routes */}
-            <Route path="/admin" element={<DashboardLayout role="admin" />}>
+            <Route
+              path="/admin"
+              element={(
+                <RBACGuard allowedRoles={["ADMIN"]}>
+                  <DashboardLayout role="admin" />
+                </RBACGuard>
+              )}
+            >
               <Route index element={<AdminDashboard />} />
               <Route path="leads" element={<LeadsPage />} />
               <Route path="units" element={<UnitsPage />} />
@@ -105,7 +120,14 @@ const App = () => (
             </Route>
 
             {/* Manager Routes */}
-            <Route path="/manager" element={<DashboardLayout role="manager" />}>
+            <Route
+              path="/manager"
+              element={(
+                <RBACGuard allowedRoles={["MANAGER"]}>
+                  <DashboardLayout role="manager" />
+                </RBACGuard>
+              )}
+            >
               <Route index element={<ManagerDashboard />} />
               <Route path="leads" element={<ManagerLeadsPage />} />
               <Route path="units" element={<ManagerUnitsPage />} />
@@ -116,7 +138,14 @@ const App = () => (
             </Route>
 
             {/* Agent Routes */}
-            <Route path="/agent" element={<DashboardLayout role="agent" />}>
+            <Route
+              path="/agent"
+              element={(
+                <RBACGuard allowedRoles={["AGENT"]}>
+                  <DashboardLayout role="agent" />
+                </RBACGuard>
+              )}
+            >
               <Route index element={<AgentDashboard />} />
               <Route path="leads" element={<AgentLeadsPage />} />
               <Route path="properties" element={<AgentPropertiesPage />} />
@@ -137,10 +166,24 @@ const App = () => (
             <Route path="/customer/payments" element={<CustomerPaymentsPage />} />
 
             {/* Profile & Support Routes */}
-            <Route path="/profile" element={<DashboardLayout role="admin" />}>
+            <Route
+              path="/profile"
+              element={(
+                <RBACGuard allowedRoles={["ADMIN", "SUPER_ADMIN", "MANAGER", "AGENT"]}>
+                  <DashboardLayout role="admin" />
+                </RBACGuard>
+              )}
+            >
               <Route index element={<ProfilePage />} />
             </Route>
-            <Route path="/help-support" element={<DashboardLayout role="admin" />}>
+            <Route
+              path="/help-support"
+              element={(
+                <RBACGuard allowedRoles={["ADMIN", "SUPER_ADMIN", "MANAGER", "AGENT"]}>
+                  <DashboardLayout role="admin" />
+                </RBACGuard>
+              )}
+            >
               <Route index element={<HelpSupportPage />} />
             </Route>
 

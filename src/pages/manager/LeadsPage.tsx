@@ -161,7 +161,7 @@ export const ManagerLeadsPage = () => {
         canEdit: true,
         canAssign: true,
         canChangeStatus: true,
-        canDelete: false,
+        canDelete: true,
       }
     );
   };
