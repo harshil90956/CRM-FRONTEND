@@ -31,9 +31,11 @@ import { SummaryKPICard } from "@/components/dashboard/SummaryKPICard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { adminUsersService, bookingsService, leadsService, paymentsService, projectsService, unitsService } from "@/api";
+import { useAppStore } from "@/stores/appStore";
 
 export const AdminDashboard = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
+  const { currentUser } = useAppStore();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isGoalsOpen, setIsGoalsOpen] = useState(false);
@@ -51,8 +53,9 @@ export const AdminDashboard = () => {
 
   // Load metrics
   useEffect(() => {
+    if (!currentUser?.role) return;
     loadMetrics();
-  }, []);
+  }, [currentUser?.role]);
 
   const downloadSampleCSV = (type: string) => {
     const headersByType: Record<string, string[]> = {
@@ -76,6 +79,7 @@ export const AdminDashboard = () => {
   const loadMetrics = async () => {
     setIsLoading(true);
     try {
+      const canFetchAdminUsers = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
       const now = new Date();
       const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const yesterday = new Date(now);
@@ -91,7 +95,7 @@ export const AdminDashboard = () => {
         paymentsService.list(),
         paymentsService.getSummary(),
         bookingsService.list(),
-        adminUsersService.list(),
+        canFetchAdminUsers ? adminUsersService.list() : Promise.resolve({ success: true, data: [] } as any),
       ]);
 
       const leads = leadsRes.success ? (leadsRes.data || []) : [];

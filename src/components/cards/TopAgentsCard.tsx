@@ -3,6 +3,8 @@ import { TrendingUp } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useEffect, useState } from "react";
 import { adminUsersService, leadsService } from "@/api";
+import { staffService } from "@/api/services/staff.service";
+import { useAppStore } from "@/stores/appStore";
 
 type AgentRow = {
   id: string;
@@ -14,12 +16,14 @@ type AgentRow = {
 
 export const TopAgentsCard = () => {
   const [sortedAgents, setSortedAgents] = useState<AgentRow[]>([]);
+  const { currentUser } = useAppStore();
 
   useEffect(() => {
     void (async () => {
       try {
+        const canFetchAdminUsers = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
         const [usersRes, leadsRes] = await Promise.all([
-          adminUsersService.list(),
+          canFetchAdminUsers ? adminUsersService.list() : staffService.list({ role: 'AGENT' }),
           leadsService.list(),
         ]);
 
@@ -62,7 +66,7 @@ export const TopAgentsCard = () => {
         setSortedAgents([]);
       }
     })();
-  }, []);
+  }, [currentUser?.role]);
 
   return (
     <motion.div

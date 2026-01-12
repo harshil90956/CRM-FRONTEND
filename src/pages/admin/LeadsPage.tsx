@@ -142,15 +142,22 @@ export const LeadsPage = () => {
   const [isManageFieldsOpen, setIsManageFieldsOpen] = useState(false);
   const [manageProjectId, setManageProjectId] = useState<string>('none');
   const [manageLeadFields, setManageLeadFields] = useState<LeadField[]>([]);
-  const [isFieldKeyTouched, setIsFieldKeyTouched] = useState(false);
   const [newField, setNewField] = useState({
-    key: '',
     label: '',
+    placeholder: '',
     type: 'TEXT' as LeadField['type'],
     optionsText: '',
     required: false,
     order: '0',
   });
+
+  const normalizePhone = (raw: string): string => String(raw || '').trim();
+
+  const isValidPhone = (raw: string): boolean => {
+    const s = normalizePhone(raw);
+    if (!s) return false;
+    return /^\+?[0-9][0-9\s\-]{6,}$/.test(s);
+  };
 
   const [newLead, setNewLead] = useState({
     name: "",
@@ -492,7 +499,7 @@ export const LeadsPage = () => {
   const handleCreateLeadField = async () => {
     const projectId = manageProjectId === 'none' ? null : manageProjectId;
     const order = Number(newField.order);
-    const normalizedKey = normalizeLeadFieldKey(newField.key);
+    const normalizedKey = normalizeLeadFieldKey(newField.label);
     if (!normalizedKey || !newField.label.trim()) {
       toast.error('Label is required');
       return;
@@ -522,8 +529,7 @@ export const LeadsPage = () => {
         throw new Error(res.message || 'Failed to create custom field');
       }
       toast.success('Custom field created');
-      setNewField({ key: '', label: '', type: 'TEXT' as any, optionsText: '', required: false, order: '0' });
-      setIsFieldKeyTouched(false);
+      setNewField({ label: '', placeholder: '', type: 'TEXT' as any, optionsText: '', required: false, order: '0' });
       await loadManageLeadFields(projectId);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to create custom field';
@@ -559,8 +565,20 @@ export const LeadsPage = () => {
       }
       const data = (res.data || []).map((l) => {
         const assignedName = staffNameById.get(l.assignedToId || '') || l.assignedToId || null;
+        const phoneCandidate =
+          (l as any)?.phone ??
+          (l as any)?.phoneNumber ??
+          (l as any)?.mobile ??
+          (l as any)?.mobileNumber ??
+          '';
+        const normalizedPhone = String(phoneCandidate || '').trim();
+        if (!normalizedPhone) {
+          // eslint-disable-next-line no-console
+          console.error('[AdminLeads] Lead missing phone number in API response', { leadId: (l as any)?.id, lead: l });
+        }
         return {
           ...l,
+          phone: normalizedPhone,
           assignedTo: assignedName,
         };
       });
@@ -843,12 +861,16 @@ export const LeadsPage = () => {
           phone: newLead.phone,
         });
         if (!core) return;
+        if (!isValidPhone(core.phone)) {
+          toast.error('Phone number is required and must be valid');
+          return;
+        }
         const dynamicData = buildDynamicPayload(newLeadFields, newDynamicData);
 
         await leadsService.createLead({
           name: core.name,
           email: core.email,
-          phone: core.phone,
+          phone: normalizePhone(core.phone),
           projectId: newLead.project ? newLead.project : null,
           budget: newLead.budget ? Number(newLead.budget) : null,
           source: (newLead.source || 'Website') as any,
@@ -859,7 +881,11 @@ export const LeadsPage = () => {
         });
       } else {
         if (!newLead.name || !newLead.email || !newLead.phone) {
-          toast.error("Please fill all required fields");
+          toast.error('Phone number is required');
+          return;
+        }
+        if (!isValidPhone(newLead.phone)) {
+          toast.error('Phone number is required and must be valid');
           return;
         }
         const dynamicData = buildDynamicPayload(newLeadFields, newDynamicData);
@@ -867,7 +893,7 @@ export const LeadsPage = () => {
         await leadsService.createLead({
           name: newLead.name,
           email: newLead.email,
-          phone: newLead.phone,
+          phone: normalizePhone(newLead.phone),
           projectId: newLead.project ? newLead.project : null,
           budget: newLead.budget ? Number(newLead.budget) : null,
           source: (newLead.source || 'Website') as any,
@@ -890,7 +916,12 @@ export const LeadsPage = () => {
 
   const handleQuickAdd = async () => {
     if (!newLead.name || !newLead.email || !newLead.phone) {
-      toast.error("Please fill all required fields");
+      toast.error('Phone number is required');
+      return;
+    }
+
+    if (!isValidPhone(newLead.phone)) {
+      toast.error('Phone number is required and must be valid');
       return;
     }
 
@@ -901,7 +932,7 @@ export const LeadsPage = () => {
       await leadsService.createLead({
         name: newLead.name,
         email: newLead.email,
-        phone: newLead.phone,
+        phone: normalizePhone(newLead.phone),
         projectId: newLead.project ? newLead.project : null,
         budget: newLead.budget ? Number(newLead.budget) : null,
         source: (newLead.source || 'Website') as any,
@@ -932,6 +963,23 @@ export const LeadsPage = () => {
       const { rows } = parseCsv(importCsv);
       if (rows.length === 0) {
         toast.error('No data found in CSV');
+        return;
+      }
+
+      const missingPhoneCount = rows.filter((r: any) => {
+        const byKey = (k: string) => {
+          const lower = k.toLowerCase();
+          const direct = r?.[k];
+          if (direct !== undefined && direct !== null) return String(direct).trim();
+          const matched = Object.keys(r || {}).find((x) => x.toLowerCase() === lower);
+          if (!matched) return '';
+          return String((r as any)[matched] ?? '').trim();
+        };
+        const phone = byKey('phone');
+        return !phone || !isValidPhone(phone);
+      }).length;
+      if (missingPhoneCount > 0) {
+        toast.error(`Import blocked: ${missingPhoneCount} row(s) missing a valid phone number`);
         return;
       }
 
@@ -1006,9 +1054,14 @@ export const LeadsPage = () => {
         phone = core.phone;
       } else {
         if (!name || !email || !phone) {
-          toast.error("Please fill all required fields");
+          toast.error('Phone number is required');
           return;
         }
+      }
+
+      if (!isValidPhone(phone)) {
+        toast.error('Phone number is required and must be valid');
+        return;
       }
 
       const dynamicData = buildDynamicPayload(editLeadFields, editDynamicData);
@@ -1016,7 +1069,7 @@ export const LeadsPage = () => {
       const res = await leadsService.updateLead(selectedLead.id, {
         name,
         email,
-        phone,
+        phone: normalizePhone(phone),
         notes: editLead.notes || undefined,
         source: editLead.source || undefined,
         priority: editLead.priority || undefined,
@@ -1060,8 +1113,15 @@ export const LeadsPage = () => {
   };
 
   const handleCall = (lead: LeadDb & { assignedTo?: string | null }) => {
-    toast.info(`Calling ${lead.phone}...`);
-    window.open(`tel:${lead.phone}`, '_blank');
+    const phone = String((lead as any)?.phone ?? '').trim();
+    if (!phone) {
+      // eslint-disable-next-line no-console
+      console.error('[AdminLeads] Missing phone number for lead', { leadId: (lead as any)?.id, lead });
+      toast.error('Phone number is missing');
+      return;
+    }
+    toast.info(`Calling ${phone}...`);
+    window.open(`tel:${phone}`, '_blank');
   };
 
   const handleEmail = (lead: LeadDb & { assignedTo?: string | null }) => {
@@ -1074,7 +1134,7 @@ export const LeadsPage = () => {
   };
 
   const renderListView = () => (
-    <Table className="min-w-[1000px]">
+    <Table className="w-full">
       <TableHeader>
         <TableRow className="bg-muted/50">
           <TableHead className="w-12">
@@ -1125,7 +1185,17 @@ export const LeadsPage = () => {
             {(projectFilter !== 'all' && combinedListFields.length > 0) ? (
               <>
                 {combinedListFields.map((f) => {
-                  const v = (lead as any)?.dynamicData?.[f.key];
+                  const normKey = String(f.key || '').toLowerCase();
+                  const vRaw = (lead as any)?.dynamicData?.[f.key];
+                  const v = (() => {
+                    if (vRaw !== undefined && vRaw !== null && String(vRaw).trim() !== '') return vRaw;
+                    if (normKey === 'name' || normKey === 'full_name' || normKey === 'fullname') return (lead as any)?.name;
+                    if (normKey === 'email') return (lead as any)?.email;
+                    if (normKey === 'phone' || normKey === 'mobile' || normKey === 'phonenumber' || normKey === 'mobile_number') {
+                      return (lead as any)?.phone;
+                    }
+                    return vRaw;
+                  })();
                   const display = (v === undefined || v === null || String(v).trim() === '')
                     ? '—'
                     : f.type === 'CHECKBOX'
@@ -1184,7 +1254,7 @@ export const LeadsPage = () => {
                     </div>
                     <div className="flex items-center gap-2 text-sm">
                       <Phone className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-muted-foreground">{lead.phone}</span>
+                      <span className="text-muted-foreground">{String(lead.phone || '').trim() ? String(lead.phone).trim() : '—'}</span>
                     </div>
                   </div>
                 </TableCell>
@@ -1327,32 +1397,24 @@ export const LeadsPage = () => {
                   <Label>Add New Field</Label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="grid gap-2">
-                      <Label>Key *</Label>
-                      <Input
-                        value={newField.key}
-                        onChange={(e) => {
-                          setIsFieldKeyTouched(true);
-                          setNewField({ ...newField, key: normalizeLeadFieldKey(e.target.value) });
-                        }}
-                        placeholder="Auto: preferred_location"
-                      />
-                      <div className="text-xs text-muted-foreground">Auto converted to snake_case. You can leave it blank and it will be generated from Label.</div>
-                    </div>
-                    <div className="grid gap-2">
                       <Label>Label *</Label>
                       <Input
                         value={newField.label}
                         onChange={(e) => {
                           const nextLabel = e.target.value;
-                          const next: any = { ...newField, label: nextLabel };
-                          if (!isFieldKeyTouched || !newField.key.trim()) {
-                            next.key = normalizeLeadFieldKey(nextLabel);
-                          }
-                          setNewField(next);
+                          setNewField({ ...newField, label: nextLabel });
                         }}
                         placeholder="e.g. Preferred Location"
                       />
                       <div className="text-xs text-muted-foreground">Label is the field name shown in Lead form (not a value like an email).</div>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Input
+                        value={normalizeLeadFieldKey(newField.label)}
+                        readOnly
+                        placeholder="auto_generated_key"
+                      />
                     </div>
                   </div>
 
