@@ -49,7 +49,7 @@ export const ActivityCard = () => {
         const [bookingsRes, paymentsRes, leadsRes, usersRes] = await Promise.all([
           bookingsService.list(),
           paymentsService.list(),
-          leadsService.list(),
+          canFetchAdminUsers ? leadsService.listAdminLeads() : leadsService.list(),
           canFetchAdminUsers ? adminUsersService.list() : staffService.list(),
         ]);
 

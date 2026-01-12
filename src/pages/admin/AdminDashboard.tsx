@@ -89,7 +89,7 @@ export const AdminDashboard = () => {
 
       const [leadStatsRes, leadsRes, projectsRes, unitsRes, paymentsRes, paymentsSummaryRes, bookingsRes, usersRes] = await Promise.all([
         leadsService.getLeadStats(),
-        leadsService.list(),
+        leadsService.listAdminLeads(),
         projectsService.list(),
         unitsService.list(),
         paymentsService.list(),

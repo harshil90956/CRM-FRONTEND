@@ -11,11 +11,13 @@ import {
 } from "recharts";
 import { useEffect, useMemo, useState } from "react";
 import { leadsService } from "@/api";
+import { useAppStore } from "@/stores/appStore";
 
 type FunnelRow = { stage: string; count: number; color: string };
 
 export const LeadFunnelChart = () => {
   const [rows, setRows] = useState<FunnelRow[]>([]);
+  const { currentUser } = useAppStore();
 
   const baseRows = useMemo<FunnelRow[]>(
     () => [
@@ -30,7 +32,13 @@ export const LeadFunnelChart = () => {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await leadsService.list();
+        const role = String(currentUser?.role || '').toUpperCase();
+        const res =
+          role === 'ADMIN' || role === 'SUPER_ADMIN'
+            ? await leadsService.listAdminLeads()
+            : role === 'MANAGER'
+              ? ({ success: true, data: await leadsService.listManagerLeads() } as any)
+              : await leadsService.list();
         const leads = res.success ? (res.data || []) : [];
 
         const next = baseRows.map((r) => ({ ...r }));
@@ -52,7 +60,7 @@ export const LeadFunnelChart = () => {
         setRows(baseRows);
       }
     })();
-  }, [baseRows]);
+  }, [baseRows, currentUser?.role]);
 
   return (
     <motion.div

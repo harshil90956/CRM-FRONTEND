@@ -3,7 +3,6 @@ import { TrendingUp } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useEffect, useState } from "react";
 import { adminUsersService, leadsService } from "@/api";
-import { staffService } from "@/api/services/staff.service";
 import { useAppStore } from "@/stores/appStore";
 
 type AgentRow = {
@@ -23,8 +22,8 @@ export const TopAgentsCard = () => {
       try {
         const canFetchAdminUsers = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
         const [usersRes, leadsRes] = await Promise.all([
-          canFetchAdminUsers ? adminUsersService.list() : staffService.list({ role: 'AGENT' }),
-          leadsService.list(),
+          canFetchAdminUsers ? adminUsersService.list() : Promise.resolve({ success: true, data: [] } as any),
+          canFetchAdminUsers ? leadsService.listAdminLeads() : leadsService.list(),
         ]);
 
         const users = usersRes.success ? (usersRes.data || []) : [];
