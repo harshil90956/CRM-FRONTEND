@@ -9,6 +9,7 @@ export type PaymentDb = {
   unitId: string;
   tenantId: string;
   method?: string;
+  projectName?: string;
   paidAt?: string | null;
   notes?: string | null;
   paymentType?: string | null;
