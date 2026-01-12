@@ -44,7 +44,7 @@ const toJsonOrText = async (res: Response): Promise<unknown> => {
 const getAccessToken = (): string | null => {
   if (typeof window === 'undefined') return null;
 
-  const keys = ['crm_accessToken', 'accessToken', 'token'];
+  const keys = ['crm_accessToken', 'auth_token', 'accessToken', 'token'];
 
   for (const k of keys) {
     const v = localStorage.getItem(k);
@@ -57,6 +57,22 @@ const getAccessToken = (): string | null => {
   }
 
   return null;
+};
+
+const clearStoredToken = () => {
+  if (typeof window === 'undefined') return;
+  const keys = ['crm_accessToken', 'auth_token', 'accessToken', 'token'];
+  for (const k of keys) {
+    localStorage.removeItem(k);
+    sessionStorage.removeItem(k);
+  }
+  localStorage.removeItem('crm_currentUser');
+};
+
+const redirectToLogin = () => {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname.startsWith('/login')) return;
+  window.location.replace('/login');
 };
 
 async function requestRaw<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {
@@ -90,6 +106,11 @@ async function requestRaw<T>(method: HttpMethod, path: string, body?: unknown): 
   const payload = await toJsonOrText(res);
 
   if (!res.ok) {
+    if (res.status === 401) {
+      clearStoredToken();
+      redirectToLogin();
+    }
+
     const message =
       typeof payload === 'object' && payload && 'message' in payload
         ? String((payload as any).message)

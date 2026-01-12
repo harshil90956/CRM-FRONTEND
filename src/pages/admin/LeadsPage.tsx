@@ -122,6 +122,7 @@ export const LeadsPage = () => {
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [pageSize, setPageSize] = useState(20);
   const [selectedLead, setSelectedLead] = useState<(LeadDb & { assignedTo?: string | null }) | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -617,11 +618,11 @@ export const LeadsPage = () => {
     });
   }, [leads, searchTerm, statusFilter, priorityFilter, sourceFilter, projectFilter, assignedFilter, dateRange]);
 
-  const { page: currentPage, setPage: setCurrentPage, totalPages, pageItems: paginatedLeads } = useClientPagination(filteredLeads, { pageSize: 10 });
+  const { page: currentPage, setPage: setCurrentPage, totalPages, pageItems: paginatedLeads } = useClientPagination(filteredLeads, { pageSize });
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, priorityFilter, sourceFilter, projectFilter, assignedFilter, dateRange, setCurrentPage]);
+  }, [searchTerm, statusFilter, priorityFilter, sourceFilter, projectFilter, assignedFilter, dateRange, pageSize, setCurrentPage]);
 
   useEffect(() => {
     const projectId = projectFilter === 'all' ? null : projectFilter;
@@ -715,11 +716,19 @@ export const LeadsPage = () => {
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === paginatedLeads.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(paginatedLeads.map((l) => l.id)));
+    const pageIds = paginatedLeads.map((l) => l.id);
+    const allSelectedOnPage = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+
+    if (allSelectedOnPage) {
+      const next = new Set(selectedIds);
+      pageIds.forEach((id) => next.delete(id));
+      setSelectedIds(next);
+      return;
     }
+
+    const next = new Set(selectedIds);
+    pageIds.forEach((id) => next.add(id));
+    setSelectedIds(next);
   };
 
   const handleExportAll = () => {
@@ -1768,7 +1777,20 @@ export const LeadsPage = () => {
             {viewMode === 'list' ? renderListView() : renderGridView(viewMode === 'grid-small' ? 'small' : 'large')}
             
             {/* Pagination */}
-            <PaginationBar page={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+            <div className="flex flex-col gap-2 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Rows per page</span>
+                <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                  <SelectTrigger className="h-8 w-[90px]"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-popover">
+                    <SelectItem value="20">20</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <PaginationBar page={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} className="border-0 p-0" />
+            </div>
           </div>
         )}
       </motion.div>
