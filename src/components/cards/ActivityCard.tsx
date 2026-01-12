@@ -3,6 +3,8 @@ import { Phone, Calendar, FileText, Mail, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { adminUsersService, bookingsService, leadsService, paymentsService } from "@/api";
+import { staffService } from "@/api/services/staff.service";
+import { useAppStore } from "@/stores/appStore";
 
 type ActivityRow = {
   id: string;
@@ -38,15 +40,17 @@ const getActivityColor = (type: string) => {
 
 export const ActivityCard = () => {
   const [activities, setActivities] = useState<ActivityRow[]>([]);
+  const { currentUser } = useAppStore();
 
   useEffect(() => {
     void (async () => {
       try {
+        const canFetchAdminUsers = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
         const [bookingsRes, paymentsRes, leadsRes, usersRes] = await Promise.all([
           bookingsService.list(),
           paymentsService.list(),
           leadsService.list(),
-          adminUsersService.list(),
+          canFetchAdminUsers ? adminUsersService.list() : staffService.list(),
         ]);
 
         const bookings = bookingsRes.success ? (bookingsRes.data || []) : [];
@@ -124,7 +128,7 @@ export const ActivityCard = () => {
         setActivities([]);
       }
     })();
-  }, []);
+  }, [currentUser?.role]);
 
   return (
     <motion.div
