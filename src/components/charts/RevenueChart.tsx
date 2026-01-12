@@ -41,7 +41,7 @@ export const RevenueChart = () => {
       setIsLoading(true);
       try {
         const res = await paymentsService.list();
-        const payments = res.data || [];
+        const payments = res.success ? (res.data || []) : [];
 
         const totals = new Map<string, number>();
         for (const p of payments) {
@@ -55,8 +55,7 @@ export const RevenueChart = () => {
         const data: RevenuePoint[] = monthKeys.map(({ key, label }) => {
           const amount = totals.get(key) || 0;
           const revenueCr = Number((amount / 10000000).toFixed(2));
-          const target = Number((revenueCr * 1.15 + 0.1).toFixed(2));
-          return { month: label, revenue: revenueCr, target };
+          return { month: label, revenue: revenueCr, target: 0 };
         });
 
         setPoints(data);

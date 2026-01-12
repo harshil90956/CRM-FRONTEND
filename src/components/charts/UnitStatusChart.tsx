@@ -1,13 +1,49 @@
 import { motion } from "framer-motion";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import { useEffect, useState } from "react";
+import { unitsService } from "@/api";
 
-const data = [
-  { name: "Available", value: 170, color: "hsl(var(--success))" },
-  { name: "Booked", value: 310, color: "hsl(var(--warning))" },
-  { name: "Sold", value: 570, color: "hsl(var(--primary))" },
-];
+type Row = { name: string; value: number; color: string };
 
 export const UnitStatusChart = () => {
+  const [data, setData] = useState<Row[]>([
+    { name: "Available", value: 0, color: "hsl(var(--success))" },
+    { name: "Booked", value: 0, color: "hsl(var(--warning))" },
+    { name: "Sold", value: 0, color: "hsl(var(--primary))" },
+  ]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await unitsService.list();
+        const units = res.success ? (res.data || []) : [];
+
+        let available = 0;
+        let booked = 0;
+        let sold = 0;
+
+        for (const u of units) {
+          const s = String(u.status);
+          if (s === 'SOLD') sold += 1;
+          else if (s === 'BOOKED') booked += 1;
+          else available += 1;
+        }
+
+        setData([
+          { name: "Available", value: available, color: "hsl(var(--success))" },
+          { name: "Booked", value: booked, color: "hsl(var(--warning))" },
+          { name: "Sold", value: sold, color: "hsl(var(--primary))" },
+        ]);
+      } catch {
+        setData([
+          { name: "Available", value: 0, color: "hsl(var(--success))" },
+          { name: "Booked", value: 0, color: "hsl(var(--warning))" },
+          { name: "Sold", value: 0, color: "hsl(var(--primary))" },
+        ]);
+      }
+    })();
+  }, []);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}

@@ -29,7 +29,7 @@ const tabs: { id: DashboardTab; label: string; icon: React.ReactNode }[] = [
 export const DashboardTabs = ({ activeTab, onChange }: DashboardTabsProps) => {
   return (
     <div className="flex items-center justify-center border-b border-border bg-background">
-      <div className="flex items-center gap-1 overflow-x-auto py-2 px-4">
+      <div className="flex flex-wrap items-center justify-center gap-1 py-2 px-4 max-w-full">
         {tabs.map((tab) => (
           <button
             key={tab.id}

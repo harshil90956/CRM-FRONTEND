@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { httpClient } from '@/api/httpClient';
-import { tenants as defaultTenants, leads as defaultLeads, projects as defaultProjects, units as defaultUnits, agents as defaultAgents, payments as defaultPayments } from '@/data/mockData';
 
 export type AuthRole = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'AGENT' | 'CUSTOMER';
 
@@ -48,10 +47,10 @@ const AppContext = createContext<AppState | undefined>(undefined);
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [tenants, setTenants] = useState<Tenant[]>(defaultTenants);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [goals, setGoalsState] = useState({ monthlyTarget: 100, leadsTarget: 200, conversionsTarget: 25 });
   const [dateRange, setDateRange] = useState(30);
-  const [leads, setLeads] = useState(defaultLeads);
+  const [leads, setLeads] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const getStoredToken = (): string | null => {

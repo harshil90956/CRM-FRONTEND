@@ -73,14 +73,28 @@ export const CustomerProjectsPage = () => {
 
   const loadApprovedCounts = async () => {
     try {
-      const res = await reviewsService.managerList();
-      const rows = (((res as any)?.data ?? []) as any[]).filter((r) => r?.type === 'project' && r?.status === 'approved');
+      const tenantId = String((currentUser as any)?.tenantId || "");
+      if (!tenantId) {
+        setApprovedCountByProjectId(new Map());
+        return;
+      }
+
       const next = new Map<string, number>();
-      rows.forEach((r) => {
-        const key = String(r.targetId || '');
-        if (!key) return;
-        next.set(key, (next.get(key) ?? 0) + 1);
-      });
+      await Promise.all(
+        projects.map(async (p) => {
+          const projectId = String((p as any)?.id || "");
+          if (!projectId) return;
+          try {
+            const res = await reviewsService.publicList({ type: 'project', targetId: projectId, tenantId, limit: 1, offset: 0 });
+            const meta = (res as any)?.data?.meta;
+            const total = Number(meta?.total) || 0;
+            next.set(projectId, total);
+          } catch {
+            next.set(projectId, 0);
+          }
+        }),
+      );
+
       setApprovedCountByProjectId(next);
     } catch {
       setApprovedCountByProjectId(new Map());
@@ -103,7 +117,7 @@ export const CustomerProjectsPage = () => {
 
   useEffect(() => {
     loadApprovedCounts();
-  }, []);
+  }, [currentUser?.tenantId]);
 
   useEffect(() => {
     loadMyReviewsFromStorage();

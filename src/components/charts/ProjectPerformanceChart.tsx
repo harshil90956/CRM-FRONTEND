@@ -9,9 +9,65 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { projectPerformance } from "@/data/mockData";
+import { useEffect, useState } from "react";
+import { bookingsService, paymentsService, projectsService, unitsService } from "@/api";
+
+type ProjectPerfRow = { name: string; bookings: number; revenue: number };
 
 export const ProjectPerformanceChart = () => {
+  const [rows, setRows] = useState<ProjectPerfRow[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [projectsRes, unitsRes, bookingsRes, paymentsRes] = await Promise.all([
+          projectsService.list(),
+          unitsService.list(),
+          bookingsService.list(),
+          paymentsService.list(),
+        ]);
+
+        const projects = projectsRes.success ? (projectsRes.data || []) : [];
+        const units = unitsRes.success ? (unitsRes.data || []) : [];
+        const bookings = bookingsRes.success ? (bookingsRes.data || []) : [];
+        const payments = paymentsRes.success ? (paymentsRes.data || []) : [];
+
+        const projectIdByUnitId = new Map<string, string>();
+        for (const u of units) {
+          if (u.id && u.projectId) projectIdByUnitId.set(u.id, u.projectId);
+        }
+
+        const bookingsByProjectId = new Map<string, number>();
+        for (const b of bookings) {
+          const pid = b.projectId || projectIdByUnitId.get(b.unitId) || '';
+          if (!pid) continue;
+          bookingsByProjectId.set(pid, (bookingsByProjectId.get(pid) || 0) + 1);
+        }
+
+        const revenueByProjectId = new Map<string, number>();
+        for (const pay of payments) {
+          if (String(pay.status) !== 'Received') continue;
+          const pid = projectIdByUnitId.get(pay.unitId) || '';
+          if (!pid) continue;
+          revenueByProjectId.set(pid, (revenueByProjectId.get(pid) || 0) + (pay.amount || 0));
+        }
+
+        const next: ProjectPerfRow[] = [];
+        for (const p of projects) {
+          const bookingsCount = bookingsByProjectId.get(p.id) || 0;
+          const revenueAmount = revenueByProjectId.get(p.id) || 0;
+          const revenueCr = Number((revenueAmount / 10000000).toFixed(2));
+          next.push({ name: p.name, bookings: bookingsCount, revenue: revenueCr });
+        }
+
+        const hasAny = next.some((r) => r.bookings > 0 || r.revenue > 0);
+        setRows(hasAny ? next : []);
+      } catch {
+        setRows([]);
+      }
+    })();
+  }, []);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -25,7 +81,7 @@ export const ProjectPerformanceChart = () => {
       </div>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={projectPerformance}>
+          <BarChart data={rows}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis
               dataKey="name"
