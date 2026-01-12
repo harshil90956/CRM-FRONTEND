@@ -10,6 +10,7 @@ export { reviewsService } from './services/reviews.service';
 export { staffService } from './services/staff.service';
 export { unitsService } from './services/units.service';
 export { superAdminUsersService } from './services/super-admin-users.service';
+export { adminReportsService } from './services/admin-reports.service';
 
 export type { LeadDb, CreateLeadInput } from './services/leads.service';
 export type { PaymentDb, UpdatePaymentInput } from './services/payments.service';
