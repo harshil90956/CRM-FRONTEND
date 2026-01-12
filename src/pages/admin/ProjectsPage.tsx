@@ -47,6 +47,7 @@ interface Project {
   id: string;
   name: string;
   location: string;
+  mainType?: string;
   status: string;
   totalUnits: number;
   soldUnits: number;
@@ -55,6 +56,12 @@ interface Project {
   priceRange: string;
   isClosed?: boolean;
 }
+
+const projectTypeOptions = [
+  { value: 'Residential', label: 'Residential' },
+  { value: 'Commercial', label: 'Commercial' },
+  { value: 'Industrial', label: 'Industrial' },
+];
 
 const getStatusColor = (status: string, isClosed?: boolean) => {
   if (isClosed) return "bg-muted text-muted-foreground";
@@ -78,8 +85,8 @@ export const ProjectsPage = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [editProject, setEditProject] = useState({ name: "", location: "", status: "Active", priceRange: "" });
-  const [newProject, setNewProject] = useState({ name: "", location: "", status: "Active", priceRange: "" });
+  const [editProject, setEditProject] = useState({ name: "", location: "", mainType: "Residential", status: "Active", priceRange: "" });
+  const [newProject, setNewProject] = useState({ name: "", location: "", mainType: "Residential", status: "Active", priceRange: "" });
 
   useEffect(() => {
     loadProjects();
@@ -138,6 +145,7 @@ export const ProjectsPage = () => {
     setEditProject({
       name: project.name,
       location: project.location,
+      mainType: (project as any).mainType || 'Residential',
       status: project.status,
       priceRange: project.priceRange
     });
@@ -151,6 +159,7 @@ export const ProjectsPage = () => {
       const res = await projectsService.update(selectedProject.id, {
         name: editProject.name,
         location: editProject.location,
+        mainType: editProject.mainType,
         status: editProject.status,
         priceRange: editProject.priceRange,
       });
@@ -161,7 +170,7 @@ export const ProjectsPage = () => {
       await loadProjects();
       setIsEditDialogOpen(false);
       setSelectedProject(null);
-      setEditProject({ name: "", location: "", status: "Active", priceRange: "" });
+      setEditProject({ name: "", location: "", mainType: "Residential", status: "Active", priceRange: "" });
     } catch (error) {
       toast.error("Failed to update project. Please try again.");
     }
@@ -177,6 +186,7 @@ export const ProjectsPage = () => {
       const res = await projectsService.create({
         name: newProject.name,
         location: newProject.location,
+        mainType: newProject.mainType,
         status: newProject.status,
         priceRange: newProject.priceRange,
       });
@@ -186,7 +196,7 @@ export const ProjectsPage = () => {
       toast.success("Project added successfully");
       await loadProjects();
       setIsAddDialogOpen(false);
-      setNewProject({ name: "", location: "", status: "Active", priceRange: "" });
+      setNewProject({ name: "", location: "", mainType: "Residential", status: "Active", priceRange: "" });
     } catch (error) {
       toast.error("Failed to add project. Please try again.");
     }
@@ -475,6 +485,17 @@ export const ProjectsPage = () => {
               <Input placeholder="Enter location" value={editProject.location} onChange={(e) => setEditProject({ ...editProject, location: e.target.value })} />
             </div>
             <div className="space-y-2">
+              <Label>Project Type</Label>
+              <Select value={editProject.mainType} onValueChange={(v) => setEditProject({ ...editProject, mainType: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {projectTypeOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
               <Label>Status</Label>
               <Select value={editProject.status} onValueChange={(v) => setEditProject({ ...editProject, status: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -516,6 +537,17 @@ export const ProjectsPage = () => {
             <div className="space-y-2">
               <Label>Location *</Label>
               <Input placeholder="Enter location" value={newProject.location} onChange={(e) => setNewProject({ ...newProject, location: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>Project Type</Label>
+              <Select value={newProject.mainType} onValueChange={(v) => setNewProject({ ...newProject, mainType: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {projectTypeOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label>Status</Label>
