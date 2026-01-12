@@ -65,7 +65,7 @@ import { ViewMode } from "@/components/leads/ViewToggle";
 import { DatePreset } from "@/components/leads/DateRangePicker";
 import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
 import { leadsService } from "@/api";
-import type { AllowedLeadActions, LeadField, ManagerLead } from "@/api/services/leads.service";
+import type { ManagerAgent, AllowedLeadActions, LeadField, ManagerLead } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isWithinInterval } from "date-fns";
@@ -131,6 +131,7 @@ export const ManagerLeadsPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [leads, setLeads] = useState<ManagerLead[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [newLeadStaffId, setNewLeadStaffId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -357,6 +358,17 @@ export const ManagerLeadsPage = () => {
     try {
       const nextPage = args?.page ?? page;
       const nextPageSize = args?.pageSize ?? pageSize;
+
+      if (!agentsLoaded) {
+        try {
+          const agents = await leadsService.getManagerAgents();
+          setStaffOptions((agents || []).map((a: ManagerAgent) => ({ id: a.id, name: a.name })));
+          setAgentsLoaded(true);
+        } catch {
+          setStaffOptions([]);
+          setAgentsLoaded(true);
+        }
+      }
 
       const [paged, summary] = await Promise.all([
         leadsService.getManagerLeads({ page: nextPage, pageSize: nextPageSize }),
@@ -897,7 +909,7 @@ export const ManagerLeadsPage = () => {
       }
 
       const file = new File([importCsv], 'leads.csv', { type: 'text/csv' });
-      const res = await leadsService.importCsv(file, importProjectId || undefined);
+      const res = await leadsService.importManagerCsv(file, importProjectId || undefined);
       if (!res?.success) {
         toast.error(res?.message || 'Failed to import CSV');
         return;

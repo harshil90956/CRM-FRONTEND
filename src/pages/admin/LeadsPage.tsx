@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, type ChangeEvent } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -108,6 +108,7 @@ const getPriorityStyle = (priority: string) => {
 
 export const LeadsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [leads, setLeads] = useState<(LeadDb & { assignedTo?: string | null; project?: { id: string; name: string } | null })[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
@@ -133,6 +134,20 @@ export const LeadsPage = () => {
   const [editLead, setEditLead] = useState({ name: "", email: "", phone: "", project: "", budget: "", source: "Website", priority: "Medium", notes: "" });
   const [importCsv, setImportCsv] = useState("");
   const [importProjectId, setImportProjectId] = useState<string>('');
+
+  const handleFileImport = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setImportCsv((event.target?.result as string) || '');
+      setIsImportOpen(true);
+    };
+    reader.readAsText(file);
+
+    // allow selecting same file again
+    e.target.value = '';
+  };
 
   const [newLeadFields, setNewLeadFields] = useState<LeadField[]>([]);
   const [editLeadFields, setEditLeadFields] = useState<LeadField[]>([]);
@@ -969,22 +984,30 @@ export const LeadsPage = () => {
         return;
       }
 
-      const { rows } = parseCsv(importCsv);
+      const { headers, rows } = parseCsv(importCsv);
       if (rows.length === 0) {
         toast.error('No data found in CSV');
         return;
       }
 
-      const missingPhoneCount = rows.filter((r: any) => {
-        const byKey = (k: string) => {
-          const lower = k.toLowerCase();
-          const direct = r?.[k];
-          if (direct !== undefined && direct !== null) return String(direct).trim();
-          const matched = Object.keys(r || {}).find((x) => x.toLowerCase() === lower);
-          if (!matched) return '';
-          return String((r as any)[matched] ?? '').trim();
-        };
-        const phone = byKey('phone');
+      const headerLowerByIndex = (headers || []).map((h) =>
+        String(h || '')
+          .trim()
+          .replace(/^"|"$/g, '')
+          .toLowerCase(),
+      );
+
+      const rowObjects = rows.map((values) => {
+        const obj: Record<string, string> = {};
+        for (let i = 0; i < headerLowerByIndex.length; i += 1) {
+          const key = headerLowerByIndex[i] || String(i);
+          obj[key] = String((values as any)?.[i] ?? '').trim().replace(/^"|"$/g, '');
+        }
+        return obj;
+      });
+
+      const missingPhoneCount = rowObjects.filter((r: any) => {
+        const phone = String(r?.phone ?? r?.mobile ?? r?.mobile_no ?? r?.mobileno ?? '').trim();
         return !phone || !isValidPhone(phone);
       }).length;
       if (missingPhoneCount > 0) {
@@ -1004,7 +1027,7 @@ export const LeadsPage = () => {
       }
 
       const file = new File([importCsv], 'leads.csv', { type: 'text/csv' });
-      const res = await leadsService.importCsv(file, importProjectId || undefined);
+      const res = await leadsService.importAdminCsv(file, importProjectId || undefined);
       if (!res?.success) {
         toast.error(res?.message || 'Failed to import CSV');
         return;
@@ -1752,9 +1775,17 @@ export const LeadsPage = () => {
           selectedCount={selectedIds.size}
           onExportAll={handleExportAll}
           onExportByStatus={handleExportByStatus}
-          onImport={() => setIsImportOpen(true)}
+          onImport={() => fileInputRef.current?.click()}
         />
       </motion.div>
+
+      <input
+        type="file"
+        accept=".csv"
+        ref={fileInputRef}
+        onChange={handleFileImport}
+        className="hidden"
+      />
 
       {/* Content Area */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>

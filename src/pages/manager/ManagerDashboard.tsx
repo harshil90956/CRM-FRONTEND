@@ -24,6 +24,7 @@ import { DashboardTabs, DashboardTab } from "@/components/dashboard/DashboardTab
 import { LiveMetricsCard } from "@/components/dashboard/LiveMetricsCard";
 import { SummaryKPICard } from "@/components/dashboard/SummaryKPICard";
 import { useToast } from "@/hooks/use-toast";
+import { leadsService } from "@/api";
 import { mockApi } from "@/lib/mockApi";
 import { useAppStore } from "@/stores/appStore";
 
@@ -40,7 +41,7 @@ const leadFieldLabels: Record<string, string> = {
 export const ManagerDashboard = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const { toast } = useToast();
-  const { addLeads, goals } = useAppStore();
+  const { goals } = useAppStore();
   const [isTargetOpen, setIsTargetOpen] = useState(false);
   const [isCsvOpen, setIsCsvOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<DashboardTab>('executive-summary');
@@ -90,12 +91,36 @@ export const ManagerDashboard = () => {
     });
   };
 
-  const handleImportLeads = (data: any[]) => {
-    // CSV Import disabled - show coming soon message
-    toast({
-      title: "Import Feature",
-      description: "CSV import feature coming soon. For now, please add leads manually.",
-    });
+  const handleImportLeads = async (data: any[]) => {
+    try {
+      const headers = leadFields;
+      const rows = (data || []).map((r: any) => headers.map((h) => String(r?.[h] ?? '')));
+      const csv = [headers.join(','), ...rows.map((row) => row.map((cell) => {
+        const value = String(cell ?? '');
+        if (value.includes(',') || value.includes('\n') || value.includes('"')) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      }).join(','))].join('\n');
+
+      const file = new File([csv], 'leads.csv', { type: 'text/csv' });
+      const res = await leadsService.importManagerCsv(file);
+      if (!res?.success) {
+        toast({ title: 'Import failed', description: res?.message || 'Failed to import CSV', variant: 'destructive' as any });
+        return;
+      }
+
+      const total = res.data?.total ?? data.length;
+      const created = res.data?.created ?? 0;
+      const skipped = res.data?.skipped ?? Math.max(0, total - created);
+      toast({
+        title: 'CSV Imported',
+        description: `Imported ${created}/${total} (skipped ${skipped}).`,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to import CSV';
+      toast({ title: 'Import failed', description: msg, variant: 'destructive' as any });
+    }
   };
 
   const formatTime = (date: Date) => {
