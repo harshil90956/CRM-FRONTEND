@@ -73,10 +73,12 @@ export const TenantsPage = () => {
 
       const byTenant = new Map<string, typeof users>();
       for (const u of users) {
-        if (u.role === 'SUPER_ADMIN') continue;
-        const arr = byTenant.get(u.tenantId) || [];
+        const role = String(u.role || '').toUpperCase();
+        if (role === 'SUPER_ADMIN') continue;
+        const tenantKey = String(u.tenantId || '').trim();
+        const arr = byTenant.get(tenantKey) || [];
         arr.push(u);
-        byTenant.set(u.tenantId, arr);
+        byTenant.set(tenantKey, arr);
       }
 
       const projectCountByTenant = new Map<string, number>();
@@ -94,7 +96,7 @@ export const TenantsPage = () => {
 
       for (const [tenantId, tenantUsers] of byTenant.entries()) {
         const admins = tenantUsers
-          .filter((u) => u.role === 'ADMIN')
+          .filter((u) => String(u.role || '').toUpperCase() === 'ADMIN')
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         const admin = admins[0];
         if (!admin) continue;
