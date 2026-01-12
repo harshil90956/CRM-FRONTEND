@@ -18,12 +18,14 @@ export const PageWrapper = ({
   sidebarCollapsed,
 }: PageWrapperProps) => {
   const isMobile = useIsMobile();
+  const sidebarOffset = isMobile ? 0 : (sidebarCollapsed ? 72 : 260);
   return (
     <motion.main
       initial={false}
-      animate={{ marginLeft: isMobile ? 0 : (sidebarCollapsed ? 72 : 260) }}
+      animate={{ marginLeft: sidebarOffset }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
-      className="min-h-screen pt-16 bg-background"
+      style={{ width: isMobile ? '100%' : `calc(100% - ${sidebarOffset}px)` }}
+      className="min-h-screen pt-16 bg-background overflow-x-hidden"
     >
       <div className="p-4 sm:p-6 lg:p-8">
         {/* Page Header */}
