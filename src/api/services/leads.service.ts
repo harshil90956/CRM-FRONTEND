@@ -63,6 +63,13 @@ export type LeadStats = {
   assigned: number;
 };
 
+export type ManagerLeadsSummary = {
+	total: number;
+	new: number;
+	qualified: number;
+	converted: number;
+};
+
 export type ManagerLead = {
   id: string;
   name: string;
@@ -83,6 +90,13 @@ export type ManagerLead = {
     id: string;
     name: string;
   } | null;
+};
+
+export type PaginatedResult<T> = {
+	items: T[];
+	total: number;
+	page: number;
+	pageSize: number;
 };
 
 export type AllowedLeadActions = {
@@ -145,13 +159,19 @@ export type ManagerUpdateLeadInput = {
   notes?: string;
   projectId?: string;
   dynamicData?: Record<string, any>;
- };
+};
 
- export type AgentLogActivityInput = {
+export type AgentLogActivityInput = {
   activityType: 'CALL' | 'MEETING' | 'EMAIL' | 'NOTE';
   notes: string;
   status?: string;
- };
+};
+
+export type LeadsImportResult = {
+  total: number;
+  created: number;
+  skipped: number;
+};
 
 export type LeadFieldType = 'TEXT' | 'NUMBER' | 'DATE' | 'SELECT' | 'CHECKBOX';
 
@@ -194,6 +214,20 @@ export type AdminUpdateLeadFieldInput = {
 export const leadsService = {
   list: async () => {
     return httpClient.get<LeadDb[]>('/leads');
+  },
+
+  importCsv: async (file: File, projectId?: string | null) => {
+    const form = new FormData();
+    form.append('file', file);
+
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    const path = params.toString() ? `/leads/import?${params.toString()}` : '/leads/import';
+
+    return httpClient.rawPost<{ success: boolean; data?: LeadsImportResult; message?: string }>(
+      path,
+      form,
+    );
   },
 
   listAgentLeads: async () => {
@@ -278,16 +312,36 @@ export const leadsService = {
     return httpClient.get<LeadStats>('/admin/leads/stats');
   },
 
-  getManagerLeads: async () => {
-    const res = await httpClient.get<ManagerLead[]>('/manager/leads');
-    if (!res.success) {
-      throw new Error(res.message || 'Failed to load manager leads');
-    }
-    return res.data || [];
-  },
+  getManagerLeads: async (args?: { page?: number; pageSize?: number }) => {
+		const params = new URLSearchParams();
+		if (args?.page) params.set('page', String(args.page));
+		if (args?.pageSize) params.set('pageSize', String(args.pageSize));
+		const path = params.toString() ? `/manager/leads?${params.toString()}` : '/manager/leads';
+
+		const res = await httpClient.get<PaginatedResult<ManagerLead>>(path);
+		if (!res.success) {
+			throw new Error(res.message || 'Failed to load manager leads');
+		}
+		if (!res.data) {
+			throw new Error(res.message || 'Failed to load manager leads');
+		}
+		return res.data;
+	},
+
+	getManagerLeadsSummary: async () => {
+		const res = await httpClient.get<ManagerLeadsSummary>('/manager/leads/summary');
+		if (!res.success) {
+			throw new Error(res.message || 'Failed to load lead summary');
+		}
+		if (!res.data) {
+			throw new Error(res.message || 'Failed to load lead summary');
+		}
+		return res.data;
+	},
 
   listManagerLeads: async () => {
-    return leadsService.getManagerLeads();
+		const res = await leadsService.getManagerLeads({ page: 1, pageSize: 20 });
+		return res.items;
   },
 
   updateManagerLeadStatus: async (id: string, status: string) => {

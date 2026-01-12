@@ -25,8 +25,18 @@ export const downloadCsv = (filename: string, headers: string[], rows: any[][]) 
 };
 
 export const parseCsv = (csvText: string): { headers: string[]; rows: string[][] } => {
-  const lines = csvText.trim().split('\n');
+  const normalized = (csvText || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  const lines = normalized
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
   const headers = lines[0]?.split(',').map(h => h.trim().replace(/^"|"$/g, '')) || [];
+
   const rows = lines.slice(1).map(line => {
     const values: string[] = [];
     let current = '';
@@ -44,11 +54,12 @@ export const parseCsv = (csvText: string): { headers: string[]; rows: string[][]
     }
     values.push(current.trim());
     return values;
-  });
+  }).filter((row) => row.some((v) => String(v).trim().length > 0));
   
   return { headers, rows };
 };
 
-export const sampleLeadsCsvTemplate = `Name,Email,Phone,Project,Budget,Source,Status
-John Doe,john@example.com,+91 98765 43210,Green Valley,₹85L - ₹1Cr,Website,NEW
-Jane Smith,jane@example.com,+91 87654 32109,Sky Heights,₹1.2Cr - ₹1.5Cr,Referral,NEW`;
+export const sampleLeadsCsvTemplate = `Name,Email,Phone,Status,Source,Budget,tenantId,priority,notes,projectId,assignedToId
+John Doe,john@example.com,+91 98765 43210,NEW,Website,₹85L - ₹1Cr,tenant_default,Medium,,,
+Jane Smith,jane@example.com,+91 87654 32109,NEW,Referral,₹1.2Cr - ₹1.5Cr,tenant_default,Medium,,,
+`;

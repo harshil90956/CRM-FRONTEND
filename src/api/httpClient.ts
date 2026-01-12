@@ -62,20 +62,29 @@ const getAccessToken = (): string | null => {
 async function requestRaw<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {
   const token = getAccessToken();
 
+  const isFormData =
+    typeof FormData !== 'undefined' &&
+    body !== undefined &&
+    body !== null &&
+    body instanceof FormData;
+
   const headers: Record<string, string> = {
     accept: 'application/json',
   };
   if (token) {
     headers.Authorization = `Bearer ${token.trim()}`;
   }
-  if (body !== undefined) {
+  if (body !== undefined && !isFormData) {
     headers['content-type'] = 'application/json';
   }
+
+  const requestBody: any =
+    body === undefined ? undefined : isFormData ? (body as any) : JSON.stringify(body);
 
   const res = await fetch(buildUrl(path), {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: requestBody,
   });
 
   const payload = await toJsonOrText(res);
