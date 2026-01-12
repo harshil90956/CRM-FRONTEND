@@ -158,6 +158,63 @@ export const FinancePage = () => {
 
   const { page, setPage, totalPages, pageItems: paginatedPayments } = useClientPagination(payments, { pageSize: 10 });
 
+  const formatCr = (amount: number) => {
+    const cr = amount / 10000000;
+    return `₹${cr.toFixed(2)} Cr`;
+  };
+
+  const pnl = {
+    grossRevenue: Number(summary?.totalReceivedAmount ?? 0),
+    operatingCosts: 0,
+    marketing: 0,
+    commissions: 0,
+  };
+  const netProfit = pnl.grossRevenue - pnl.operatingCosts - pnl.marketing - pnl.commissions;
+
+  const receivables = (() => {
+    const buckets = {
+      d0to30: 0,
+      d31to60: 0,
+      d60plus: 0,
+    };
+    const now = Date.now();
+    for (const p of payments) {
+      if (String(p.status) !== 'Pending' && String(p.status) !== 'Overdue') continue;
+      const created = new Date(p.createdAt).getTime();
+      if (!Number.isFinite(created)) continue;
+      const ageDays = Math.floor((now - created) / (1000 * 60 * 60 * 24));
+      if (ageDays <= 30) {
+        buckets.d0to30 += p.amount;
+      } else if (ageDays <= 60) {
+        buckets.d31to60 += p.amount;
+      } else {
+        buckets.d60plus += p.amount;
+      }
+    }
+    const total = buckets.d0to30 + buckets.d31to60 + buckets.d60plus;
+    const pct = (v: number) => (total > 0 ? Math.max(5, Math.round((v / total) * 100)) : 0);
+    return {
+      ...buckets,
+      total,
+      pct0to30: pct(buckets.d0to30),
+      pct31to60: pct(buckets.d31to60),
+      pct60plus: pct(buckets.d60plus),
+    };
+  })();
+
+  const projectRevenue = (() => {
+    const byProject = new Map<string, number>();
+    for (const p of payments) {
+      if (String(p.status) !== 'Received') continue;
+      const name = (p as any)?.projectName ? String((p as any).projectName) : 'Unknown';
+      byProject.set(name, (byProject.get(name) || 0) + (p.amount || 0));
+    }
+    return Array.from(byProject.entries())
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 4);
+  })();
+
   const handleExportReport = () => {
     const headers = ["Customer", "Unit", "Type", "Amount", "Date", "Status"];
     const rows = payments.map((payment) => [
@@ -303,24 +360,24 @@ export const FinancePage = () => {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Gross Revenue</span>
-              <span className="font-semibold text-foreground">₹485 Cr</span>
+              <span className="font-semibold text-foreground">{summaryLoading ? 'Loading...' : formatCr(pnl.grossRevenue)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Operating Costs</span>
-              <span className="font-semibold text-foreground">₹125 Cr</span>
+              <span className="font-semibold text-foreground">{summaryLoading ? 'Loading...' : formatCr(pnl.operatingCosts)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Marketing</span>
-              <span className="font-semibold text-foreground">₹18 Cr</span>
+              <span className="font-semibold text-foreground">{summaryLoading ? 'Loading...' : formatCr(pnl.marketing)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Commissions</span>
-              <span className="font-semibold text-foreground">₹24 Cr</span>
+              <span className="font-semibold text-foreground">{summaryLoading ? 'Loading...' : formatCr(pnl.commissions)}</span>
             </div>
             <div className="border-t border-border pt-4">
               <div className="flex items-center justify-between">
                 <span className="font-medium text-foreground">Net Profit</span>
-                <span className="text-xl font-bold text-success">₹318 Cr</span>
+                <span className="text-xl font-bold text-success">{summaryLoading ? 'Loading...' : formatCr(netProfit)}</span>
               </div>
             </div>
           </div>
@@ -339,28 +396,28 @@ export const FinancePage = () => {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-muted-foreground">0-30 Days</span>
-                <span className="font-medium text-foreground">₹5.2 Cr</span>
+                <span className="font-medium text-foreground">{isLoadingPayments ? 'Loading...' : formatCr(receivables.d0to30)}</span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div className="h-full bg-success w-3/4 rounded-full" />
+                <div className="h-full bg-success rounded-full" style={{ width: `${receivables.pct0to30}%` }} />
               </div>
             </div>
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-muted-foreground">31-60 Days</span>
-                <span className="font-medium text-foreground">₹4.1 Cr</span>
+                <span className="font-medium text-foreground">{isLoadingPayments ? 'Loading...' : formatCr(receivables.d31to60)}</span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div className="h-full bg-warning w-1/2 rounded-full" />
+                <div className="h-full bg-warning rounded-full" style={{ width: `${receivables.pct31to60}%` }} />
               </div>
             </div>
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-muted-foreground">60+ Days</span>
-                <span className="font-medium text-foreground">₹3.2 Cr</span>
+                <span className="font-medium text-foreground">{isLoadingPayments ? 'Loading...' : formatCr(receivables.d60plus)}</span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div className="h-full bg-destructive w-1/4 rounded-full" />
+                <div className="h-full bg-destructive rounded-full" style={{ width: `${receivables.pct60plus}%` }} />
               </div>
             </div>
           </div>
@@ -376,22 +433,18 @@ export const FinancePage = () => {
             Project-wise Revenue
           </h3>
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Green Valley</span>
-              <span className="font-semibold text-foreground">₹145 Cr</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Sky Heights</span>
-              <span className="font-semibold text-foreground">₹128 Cr</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Palm Residency</span>
-              <span className="font-semibold text-foreground">₹160 Cr</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Ocean View</span>
-              <span className="font-semibold text-foreground">₹52 Cr</span>
-            </div>
+            {isLoadingPayments ? (
+              <div className="text-muted-foreground">Loading...</div>
+            ) : projectRevenue.length === 0 ? (
+              <div className="text-muted-foreground">No revenue data yet.</div>
+            ) : (
+              projectRevenue.map((row) => (
+                <div key={row.name} className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{row.name}</span>
+                  <span className="font-semibold text-foreground">{formatCr(row.amount)}</span>
+                </div>
+              ))
+            )}
           </div>
         </motion.div>
       </div>
