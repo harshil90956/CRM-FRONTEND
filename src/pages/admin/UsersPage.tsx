@@ -12,6 +12,7 @@ import { AddUserModal } from "@/components/users/AddUserModal";
 import { adminUsersService } from "@/api/services/admin-users.service";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { useAppStore } from "@/stores/appStore";
 
 interface User {
   id: string;
@@ -25,6 +26,7 @@ interface User {
 
 export const UsersPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
+  const { currentUser } = useAppStore();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -33,6 +35,14 @@ export const UsersPage = () => {
   const [roleFilter, setRoleFilter] = useState<string>("all");
 
   const fetchUsers = async () => {
+    const canFetchAdminUsers = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
+
+    if (!canFetchAdminUsers) {
+      setUsers([]);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const res = await adminUsersService.list();
       if (!res.success) {
@@ -62,7 +72,7 @@ export const UsersPage = () => {
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [currentUser?.role]);
 
   const handleEdit = (user: User) => {
     setEditUser(user);
