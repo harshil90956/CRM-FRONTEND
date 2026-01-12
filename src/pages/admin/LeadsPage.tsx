@@ -131,6 +131,7 @@ export const LeadsPage = () => {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editLead, setEditLead] = useState({ name: "", email: "", phone: "", project: "", budget: "", source: "Website", priority: "Medium", notes: "" });
   const [importCsv, setImportCsv] = useState("");
+  const [importProjectId, setImportProjectId] = useState<string>('');
 
   const [newLeadFields, setNewLeadFields] = useState<LeadField[]>([]);
   const [editLeadFields, setEditLeadFields] = useState<LeadField[]>([]);
@@ -656,7 +657,33 @@ export const LeadsPage = () => {
         options: null,
       } as any as LeadField));
 
-    return base.concat(inferred);
+    const coreOrder = (k: string) => {
+      const key = String(k);
+      if (key === 'full_name' || key === 'name') return 0;
+      if (key === 'email') return 1;
+      if (key === 'phone') return 2;
+      return 100;
+    };
+
+    return base
+      .concat(inferred)
+      .slice()
+      .sort((a, b) => {
+        const aCore = coreOrder(String(a.key));
+        const bCore = coreOrder(String(b.key));
+        if (aCore !== bCore) return aCore - bCore;
+
+        const ao = typeof (a as any).order === 'number' ? (a as any).order : Number((a as any).order);
+        const bo = typeof (b as any).order === 'number' ? (b as any).order : Number((b as any).order);
+        const aHasOrder = Number.isFinite(ao);
+        const bHasOrder = Number.isFinite(bo);
+        if (aHasOrder && bHasOrder && ao !== bo) return ao - bo;
+        if (aHasOrder !== bHasOrder) return aHasOrder ? -1 : 1;
+
+        const al = String(a.label || a.key);
+        const bl = String(b.label || b.key);
+        return al.localeCompare(bl);
+      });
   }, [filteredLeads, listLeadFields, projectFilter]);
 
   const toggleSelect = (id: string) => {
@@ -895,18 +922,49 @@ export const LeadsPage = () => {
     }
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
     try {
-      const { headers, rows } = parseCsv(importCsv);
-      if (rows.length === 0) {
-        toast.error("No data found in CSV");
+      if (!importCsv || importCsv.trim().length === 0) {
+        toast.error('Please paste CSV content first');
         return;
       }
-      toast.success(`Parsed ${rows.length} leads from CSV`);
+
+      const { rows } = parseCsv(importCsv);
+      if (rows.length === 0) {
+        toast.error('No data found in CSV');
+        return;
+      }
+
+      const hasProjectIdColumn = (() => {
+        const header = importCsv.split(/\r\n|\n|\r/)[0] || '';
+        const cols = header.split(',').map((h) => h.trim().replace(/^"|"$/g, '').toLowerCase());
+        return cols.includes('projectid');
+      })();
+
+      if (!hasProjectIdColumn && !importProjectId) {
+        toast.error('Please select a project for this import');
+        return;
+      }
+
+      const file = new File([importCsv], 'leads.csv', { type: 'text/csv' });
+      const res = await leadsService.importCsv(file, importProjectId || undefined);
+      if (!res?.success) {
+        toast.error(res?.message || 'Failed to import CSV');
+        return;
+      }
+
+      const total = res.data?.total ?? rows.length;
+      const created = res.data?.created ?? 0;
+      const skipped = res.data?.skipped ?? Math.max(0, total - created);
+      toast.success(`Imported ${created}/${total} leads (skipped ${skipped})`);
+
       setIsImportOpen(false);
-      setImportCsv("");
+      setImportCsv('');
+      setImportProjectId('');
+      await loadLeads();
     } catch (error) {
-      toast.error("Failed to parse CSV");
+      const message = error instanceof Error ? error.message : 'Failed to import CSV';
+      toast.error(message);
     }
   };
 
@@ -1028,7 +1086,7 @@ export const LeadsPage = () => {
           {(projectFilter !== 'all' && combinedListFields.length > 0) ? (
             <>
               {combinedListFields.map((f) => (
-                <TableHead key={f.id} className="font-semibold">{f.label}</TableHead>
+                <TableHead key={f.id} className="font-semibold min-w-[160px]">{f.label}</TableHead>
               ))}
               <TableHead className="font-semibold">Project</TableHead>
               <TableHead className="text-right font-semibold">Actions</TableHead>
@@ -1075,8 +1133,8 @@ export const LeadsPage = () => {
                       : String(v);
 
                   return (
-                    <TableCell key={f.id}>
-                      <span className="text-sm text-foreground">{display}</span>
+                    <TableCell key={f.id} className="max-w-[220px] truncate">
+                      <span className="text-sm text-foreground whitespace-nowrap">{display}</span>
                     </TableCell>
                   );
                 })}
@@ -1678,7 +1736,13 @@ export const LeadsPage = () => {
       </ActionBottomBar>
 
       {/* Import Modal */}
-      <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
+      <Dialog
+        open={isImportOpen}
+        onOpenChange={(open) => {
+          setIsImportOpen(open);
+          if (!open) setImportProjectId('');
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Import Leads from CSV</DialogTitle>
@@ -1697,11 +1761,26 @@ export const LeadsPage = () => {
                 a.click();
               }}>Download Sample CSV</Button>
             </div>
+
+            <div className="grid gap-2">
+              <Label>Import Into Project</Label>
+              <Select value={importProjectId || 'none'} onValueChange={(v) => setImportProjectId(v === 'none' ? '' : v)}>
+                <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                <SelectContent className="bg-popover">
+                  <SelectItem value="none">(Use projectId from CSV)</SelectItem>
+                  {projectSelectOptions.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="text-xs text-muted-foreground">If your CSV does not contain a projectId column, select a project here.</div>
+            </div>
+
             <Textarea placeholder="Paste CSV content here..." value={importCsv} onChange={(e) => setImportCsv(e.target.value)} rows={6} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsImportOpen(false)}>Cancel</Button>
-            <Button onClick={handleImport}>Import</Button>
+            <Button onClick={handleImport} disabled={!importCsv || importCsv.trim().length === 0}>Import</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
