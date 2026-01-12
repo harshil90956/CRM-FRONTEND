@@ -9,9 +9,51 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { leadFunnel } from "@/data/mockData";
+import { useEffect, useMemo, useState } from "react";
+import { leadsService } from "@/api";
+
+type FunnelRow = { stage: string; count: number; color: string };
 
 export const LeadFunnelChart = () => {
+  const [rows, setRows] = useState<FunnelRow[]>([]);
+
+  const baseRows = useMemo<FunnelRow[]>(
+    () => [
+      { stage: 'New Leads', count: 0, color: 'hsl(217, 91%, 60%)' },
+      { stage: 'Contacted', count: 0, color: 'hsl(199, 89%, 48%)' },
+      { stage: 'Qualified', count: 0, color: 'hsl(38, 92%, 50%)' },
+      { stage: 'Won', count: 0, color: 'hsl(142, 76%, 36%)' },
+    ],
+    []
+  );
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await leadsService.list();
+        const leads = res.success ? (res.data || []) : [];
+
+        const next = baseRows.map((r) => ({ ...r }));
+        const add = (stage: FunnelRow['stage']) => {
+          const row = next.find((x) => x.stage === stage);
+          if (row) row.count += 1;
+        };
+
+        for (const l of leads) {
+          const s = String(l.status);
+          if (s === 'NEW') add('New Leads');
+          else if (s === 'CONTACTED') add('Contacted');
+          else if (s === 'QUALIFIED') add('Qualified');
+          else if (s === 'CONVERTED') add('Won');
+        }
+
+        setRows(next);
+      } catch {
+        setRows(baseRows);
+      }
+    })();
+  }, [baseRows]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -25,7 +67,7 @@ export const LeadFunnelChart = () => {
       </div>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={leadFunnel} layout="vertical">
+          <BarChart data={rows} layout="vertical">
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
             <XAxis
               type="number"
@@ -48,7 +90,7 @@ export const LeadFunnelChart = () => {
               labelStyle={{ color: "hsl(var(--foreground))" }}
             />
             <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-              {leadFunnel.map((entry, index) => (
+              {rows.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
             </Bar>

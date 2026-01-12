@@ -30,15 +30,12 @@ import { LiveMetricsCard } from "@/components/dashboard/LiveMetricsCard";
 import { SummaryKPICard } from "@/components/dashboard/SummaryKPICard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { mockApi } from "@/lib/mockApi";
-import { useAppStore } from "@/stores/appStore";
-import { leadsService } from "@/api";
+import { adminUsersService, bookingsService, leadsService, paymentsService, projectsService, unitsService } from "@/api";
 
 export const AdminDashboard = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { goals } = useAppStore();
   const [isGoalsOpen, setIsGoalsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<DashboardTab>('executive-summary');
   const [metrics, setMetrics] = useState<any>(null);
@@ -57,24 +54,125 @@ export const AdminDashboard = () => {
     loadMetrics();
   }, []);
 
+  const downloadSampleCSV = (type: string) => {
+    const headersByType: Record<string, string[]> = {
+      leads: ['name', 'email', 'phone', 'status', 'project', 'budget'],
+    };
+
+    const headers = headersByType[type] || ['id'];
+    const csv = `${headers.join(',')}\n`;
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}-sample.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const loadMetrics = async () => {
     setIsLoading(true);
     try {
-      const [data, leadStatsRes] = await Promise.all([
-        mockApi.getDashboardMetrics(),
+      const now = new Date();
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+      const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      const [leadStatsRes, leadsRes, projectsRes, unitsRes, paymentsRes, paymentsSummaryRes, bookingsRes, usersRes] = await Promise.all([
         leadsService.getLeadStats(),
+        leadsService.list(),
+        projectsService.list(),
+        unitsService.list(),
+        paymentsService.list(),
+        paymentsService.getSummary(),
+        bookingsService.list(),
+        adminUsersService.list(),
       ]);
 
-      if (leadStatsRes.success) {
-        setMetrics({
-          ...data,
-          totalLeads: leadStatsRes.data?.total ?? data?.totalLeads,
-        });
-      } else {
-        setMetrics(data);
-      }
-    } catch (error) {
-      console.error('Failed to load metrics:', error);
+      const leads = leadsRes.success ? (leadsRes.data || []) : [];
+      const projects = projectsRes.success ? (projectsRes.data || []) : [];
+      const units = unitsRes.success ? (unitsRes.data || []) : [];
+      const payments = paymentsRes.success ? (paymentsRes.data || []) : [];
+      const bookings = bookingsRes.success ? (bookingsRes.data || []) : [];
+      const users = usersRes.success ? (usersRes.data || []) : [];
+
+      const leadTotal = leadStatsRes.success
+        ? (leadStatsRes.data?.total ?? leads.length)
+        : leads.length;
+
+      const createdDayKey = (iso?: string) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (!Number.isFinite(d.getTime())) return '';
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      };
+
+      const createdMonthKey = (iso?: string) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (!Number.isFinite(d.getTime())) return '';
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      };
+
+      const newToday = leads.filter((l) => createdDayKey(l.createdAt) === todayKey).length;
+      const newYesterday = leads.filter((l) => createdDayKey(l.createdAt) === yesterdayKey).length;
+
+      const activeLeadStatuses = new Set(['NEW', 'CONTACTED', 'FOLLOWUP', 'QUALIFIED', 'NEGOTIATION']);
+      const activeLeads = leads.filter((l) => activeLeadStatuses.has(String(l.status))).length;
+      const closedDeals = leads.filter((l) => String(l.status) === 'CONVERTED').length;
+      const conversionRate = leadTotal > 0 ? Math.round((closedDeals / leadTotal) * 100) : 0;
+      const leadsThisMonth = leads.filter((l) => createdMonthKey(l.createdAt) === monthKey).length;
+
+      const paymentsThisMonthReceivedTotal = payments
+        .filter((p) => String(p.status) === 'Received')
+        .filter((p) => createdMonthKey(p.paidAt || p.createdAt) === monthKey)
+        .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      const paymentsSummary = paymentsSummaryRes.success ? paymentsSummaryRes.data : null;
+      const overduePayments = paymentsSummary?.countOverdue ?? payments.filter((p) => String(p.status) === 'Overdue').length;
+      const pendingPayments = paymentsSummary?.countPending ?? payments.filter((p) => String(p.status) === 'Pending').length;
+
+      const activeProperties = projects.filter((p) => !p.isClosed && String(p.status).toUpperCase() !== 'CLOSED').length;
+
+      setMetrics({
+        totalLeads: leadTotal,
+        newToday,
+        newYesterday,
+        activeLeads,
+        conversionRate,
+        closedDeals,
+        communications: 0,
+        pendingTasks: 0,
+        overdueTasks: 0,
+        leadsThisMonth,
+        revenueThisMonth: paymentsThisMonthReceivedTotal,
+        activeProperties,
+        overduePayments,
+        pendingPayments,
+        _raw: { leads, projects, units, payments, bookings, users },
+      });
+    } catch {
+      setMetrics({
+        totalLeads: 0,
+        newToday: 0,
+        newYesterday: 0,
+        activeLeads: 0,
+        conversionRate: 0,
+        closedDeals: 0,
+        communications: 0,
+        pendingTasks: 0,
+        overdueTasks: 0,
+        leadsThisMonth: 0,
+        revenueThisMonth: 0,
+        activeProperties: 0,
+        overduePayments: 0,
+        pendingPayments: 0,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -91,7 +189,7 @@ export const AdminDashboard = () => {
   };
 
   const handleDownloadSampleCSV = () => {
-    mockApi.downloadSampleCSV('leads');
+    downloadSampleCSV('leads');
     toast({
       title: "Sample CSV Downloaded",
       description: "Check your downloads folder for the sample format file.",
@@ -348,7 +446,7 @@ export const AdminDashboard = () => {
             />
             <SummaryKPICard
               title="Revenue This Month"
-              value={formatCurrency(metrics?.revenueThisMonth || 4016831391)}
+              value={formatCurrency(metrics?.revenueThisMonth || 0)}
               subtitle="0% vs last month"
               icon={IndianRupee}
               bgColor="bg-rose-50 dark:bg-rose-950/30"
@@ -371,10 +469,10 @@ export const AdminDashboard = () => {
         <AlertCircle className="w-5 h-5 text-warning flex-shrink-0" />
         <div className="flex-1">
           <p className="text-sm font-medium text-foreground">
-            Payment Alerts: {metrics?.overduePayments || 3} overdue
+            Payment Alerts: {metrics?.overduePayments || 0} overdue
           </p>
           <p className="text-xs text-muted-foreground">
-            {metrics?.pendingPayments || 5} pending collections this month
+            {metrics?.pendingPayments || 0} pending collections this month
           </p>
         </div>
         <Button

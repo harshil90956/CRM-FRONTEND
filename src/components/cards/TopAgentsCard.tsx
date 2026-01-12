@@ -1,13 +1,68 @@
 import { motion } from "framer-motion";
 import { TrendingUp } from "lucide-react";
-import { agents } from "@/data/mockData";
 import { Progress } from "@/components/ui/progress";
+import { useEffect, useState } from "react";
+import { adminUsersService, leadsService } from "@/api";
+
+type AgentRow = {
+  id: string;
+  name: string;
+  conversions: number;
+  totalLeads: number;
+  status: "Active" | "Inactive";
+};
 
 export const TopAgentsCard = () => {
-  const sortedAgents = [...agents]
-    .filter((a) => a.status === "Active")
-    .sort((a, b) => b.conversions - a.conversions)
-    .slice(0, 4);
+  const [sortedAgents, setSortedAgents] = useState<AgentRow[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [usersRes, leadsRes] = await Promise.all([
+          adminUsersService.list(),
+          leadsService.list(),
+        ]);
+
+        const users = usersRes.success ? (usersRes.data || []) : [];
+        const leads = leadsRes.success ? (leadsRes.data || []) : [];
+
+        const now = new Date();
+        const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const createdMonthKey = (iso?: string) => {
+          if (!iso) return '';
+          const d = new Date(iso);
+          if (!Number.isFinite(d.getTime())) return '';
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        };
+
+        const agents = users
+          .filter((u) => String(u.role).toUpperCase() === 'AGENT')
+          .map((u) => {
+            const myLeadsThisMonth = leads
+              .filter((l) => l.assignedToId === u.id)
+              .filter((l) => createdMonthKey(l.createdAt) === monthKey);
+            const totalLeads = myLeadsThisMonth.length;
+            const conversions = myLeadsThisMonth.filter((l) => String(l.status) === 'CONVERTED').length;
+            return {
+              id: u.id,
+              name: u.name,
+              totalLeads,
+              conversions,
+              status: u.isActive ? ("Active" as const) : ("Inactive" as const),
+            };
+          });
+
+        const next = agents
+          .filter((a) => a.status === "Active")
+          .sort((a, b) => b.conversions - a.conversions)
+          .slice(0, 4);
+
+        setSortedAgents(next);
+      } catch {
+        setSortedAgents([]);
+      }
+    })();
+  }, []);
 
   return (
     <motion.div
@@ -25,7 +80,7 @@ export const TopAgentsCard = () => {
       </div>
       <div className="space-y-4">
         {sortedAgents.map((agent, index) => {
-          const conversionRate = Math.round((agent.conversions / agent.totalLeads) * 100);
+          const conversionRate = agent.totalLeads > 0 ? Math.round((agent.conversions / agent.totalLeads) * 100) : 0;
           return (
             <motion.div
               key={agent.id}
