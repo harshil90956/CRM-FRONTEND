@@ -52,9 +52,41 @@ export const CsvImporter = ({
   const [errors, setErrors] = useState<string[]>([]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // CSV Import disabled - show coming soon message
-    toast.error("CSV import feature coming soon. Please add leads manually.");
-    return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (h) => String(h || '').trim(),
+      complete: (results) => {
+        const rows = (results.data || []).filter((r: any) => r && typeof r === 'object');
+        const parsedHeaders = (results.meta?.fields || []).map((h) => String(h || '').trim()).filter(Boolean);
+
+        if (parsedHeaders.length === 0 || rows.length === 0) {
+          toast.error('No data found in CSV');
+          return;
+        }
+
+        setCsvData(rows);
+        setHeaders(parsedHeaders);
+
+        const headerByLower = new Map(parsedHeaders.map((h) => [h.toLowerCase(), h] as const));
+        const defaultMapping: Record<string, string> = {};
+        requiredFields.forEach((f) => {
+          defaultMapping[f] = headerByLower.get(String(f).toLowerCase()) || '';
+        });
+        setMapping(defaultMapping);
+        setErrors([]);
+        setStep('mapping');
+      },
+      error: () => {
+        toast.error('Failed to parse CSV');
+      },
+    });
+
+    // Allow selecting the same file again
+    e.target.value = '';
   };
 
   const validateMapping = () => {
@@ -83,7 +115,7 @@ export const CsvImporter = ({
         if (!csvHeader) {
           mappedRow[field] = "";
         } else {
-          mappedRow[field] = row[csvHeader] || "";
+          mappedRow[field] = (row as any)?.[csvHeader] ?? "";
         }
       });
       return mappedRow;
@@ -91,9 +123,19 @@ export const CsvImporter = ({
   };
 
   const handleImport = () => {
-    // CSV Import disabled - show coming soon message
-    toast.error("CSV import feature coming soon. Please add leads manually.");
-    return;
+    if (!validateMapping()) return;
+
+    const allMapped = csvData.map((row) => {
+      const mappedRow: Record<string, any> = {};
+      Object.entries(mapping).forEach(([field, csvHeader]) => {
+        mappedRow[field] = csvHeader ? ((row as any)?.[csvHeader] ?? '') : '';
+      });
+      return mappedRow;
+    });
+
+    onImport(allMapped);
+    toast.success(`Imported ${allMapped.length} record(s)`);
+    resetAndClose();
   };
 
   const resetAndClose = () => {

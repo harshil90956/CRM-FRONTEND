@@ -230,6 +230,34 @@ export const leadsService = {
     );
   },
 
+  importAdminCsv: async (file: File, projectId?: string | null) => {
+    const form = new FormData();
+    form.append('file', file);
+
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    const path = params.toString() ? `/admin/leads/import?${params.toString()}` : '/admin/leads/import';
+
+    return httpClient.rawPost<{ success: boolean; data?: LeadsImportResult; message?: string }>(
+      path,
+      form,
+    );
+  },
+
+  importManagerCsv: async (file: File, projectId?: string | null) => {
+    const form = new FormData();
+    form.append('file', file);
+
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    const path = params.toString() ? `/manager/leads/import?${params.toString()}` : '/manager/leads/import';
+
+    return httpClient.rawPost<{ success: boolean; data?: LeadsImportResult; message?: string }>(
+      path,
+      form,
+    );
+  },
+
   listAgentLeads: async () => {
     return httpClient.get<LeadDb[]>('/agent/leads');
   },
