@@ -30,7 +30,7 @@ import { LiveMetricsCard } from "@/components/dashboard/LiveMetricsCard";
 import { SummaryKPICard } from "@/components/dashboard/SummaryKPICard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { adminUsersService, bookingsService, leadsService, paymentsService, projectsService, unitsService } from "@/api";
+import { bookingsService, leadsService, paymentsService, projectsService, unitsService } from "@/api";
 import { useAppStore } from "@/stores/appStore";
 
 export const AdminDashboard = () => {
@@ -79,7 +79,6 @@ export const AdminDashboard = () => {
   const loadMetrics = async () => {
     setIsLoading(true);
     try {
-      const canFetchAdminUsers = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPER_ADMIN';
       const now = new Date();
       const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const yesterday = new Date(now);
@@ -87,15 +86,13 @@ export const AdminDashboard = () => {
       const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
       const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-      const [leadStatsRes, leadsRes, projectsRes, unitsRes, paymentsRes, paymentsSummaryRes, bookingsRes, usersRes] = await Promise.all([
+      const [leadStatsRes, leadsRes, projectsRes, unitsRes, paymentsRes, bookingsRes] = await Promise.all([
         leadsService.getLeadStats(),
         leadsService.listAdminLeads(),
         projectsService.list(),
         unitsService.list(),
         paymentsService.list(),
-        paymentsService.getSummary(),
         bookingsService.list(),
-        canFetchAdminUsers ? adminUsersService.list() : Promise.resolve({ success: true, data: [] } as any),
       ]);
 
       const leads = leadsRes.success ? (leadsRes.data || []) : [];
@@ -103,7 +100,6 @@ export const AdminDashboard = () => {
       const units = unitsRes.success ? (unitsRes.data || []) : [];
       const payments = paymentsRes.success ? (paymentsRes.data || []) : [];
       const bookings = bookingsRes.success ? (bookingsRes.data || []) : [];
-      const users = usersRes.success ? (usersRes.data || []) : [];
 
       const leadTotal = leadStatsRes.success
         ? (leadStatsRes.data?.total ?? leads.length)
@@ -137,9 +133,8 @@ export const AdminDashboard = () => {
         .filter((p) => createdMonthKey(p.paidAt || p.createdAt) === monthKey)
         .reduce((sum, p) => sum + (p.amount || 0), 0);
 
-      const paymentsSummary = paymentsSummaryRes.success ? paymentsSummaryRes.data : null;
-      const overduePayments = paymentsSummary?.countOverdue ?? payments.filter((p) => String(p.status) === 'Overdue').length;
-      const pendingPayments = paymentsSummary?.countPending ?? payments.filter((p) => String(p.status) === 'Pending').length;
+      const overduePayments = payments.filter((p) => String(p.status) === 'Overdue').length;
+      const pendingPayments = payments.filter((p) => String(p.status) === 'Pending').length;
 
       const activeProperties = projects.filter((p) => !p.isClosed && String(p.status).toUpperCase() !== 'CLOSED').length;
 
@@ -158,7 +153,7 @@ export const AdminDashboard = () => {
         activeProperties,
         overduePayments,
         pendingPayments,
-        _raw: { leads, projects, units, payments, bookings, users },
+        _raw: { leads, projects, units, payments, bookings },
       });
     } catch {
       setMetrics({
@@ -224,11 +219,11 @@ export const AdminDashboard = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <div className="bg-card border border-border rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Lead Source Performance</h3>
-              <UnitStatusChart />
+              <UnitStatusChart units={metrics?._raw?.units || []} />
             </div>
             <div className="bg-card border border-border rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Sales Funnel</h3>
-              <LeadFunnelChart />
+              <LeadFunnelChart leads={metrics?._raw?.leads || []} />
             </div>
           </div>
         );
@@ -236,8 +231,13 @@ export const AdminDashboard = () => {
       case 'sales-revenue':
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <RevenueChart />
-            <ProjectPerformanceChart />
+            <RevenueChart payments={metrics?._raw?.payments || []} />
+            <ProjectPerformanceChart
+              projects={metrics?._raw?.projects || []}
+              units={metrics?._raw?.units || []}
+              bookings={metrics?._raw?.bookings || []}
+              payments={metrics?._raw?.payments || []}
+            />
           </div>
         );
 
@@ -246,11 +246,15 @@ export const AdminDashboard = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <div className="bg-card border border-border rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Top Agents</h3>
-              <TopAgentsCard />
+              <TopAgentsCard leads={metrics?._raw?.leads} />
             </div>
             <div className="bg-card border border-border rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
-              <ActivityCard />
+              <ActivityCard
+                leads={metrics?._raw?.leads}
+                bookings={metrics?._raw?.bookings}
+                payments={metrics?._raw?.payments}
+              />
             </div>
           </div>
         );
@@ -260,9 +264,14 @@ export const AdminDashboard = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <div className="bg-card border border-border rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Unit Status</h3>
-              <UnitStatusChart />
+              <UnitStatusChart units={metrics?._raw?.units || []} />
             </div>
-            <ProjectPerformanceChart />
+            <ProjectPerformanceChart
+              projects={metrics?._raw?.projects || []}
+              units={metrics?._raw?.units || []}
+              bookings={metrics?._raw?.bookings || []}
+              payments={metrics?._raw?.payments || []}
+            />
           </div>
         );
 
@@ -271,7 +280,7 @@ export const AdminDashboard = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <div className="bg-card border border-border rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Sales Funnel</h3>
-              <LeadFunnelChart />
+              <LeadFunnelChart leads={metrics?._raw?.leads || []} />
             </div>
             <ActivityCard />
           </div>
@@ -296,18 +305,23 @@ export const AdminDashboard = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               <div className="bg-card border border-border rounded-xl p-6">
                 <h3 className="text-lg font-semibold mb-4">Lead Source Performance</h3>
-                <UnitStatusChart />
+                <UnitStatusChart units={metrics?._raw?.units || []} />
               </div>
               <div className="bg-card border border-border rounded-xl p-6">
                 <h3 className="text-lg font-semibold mb-4">Sales Funnel</h3>
-                <LeadFunnelChart />
+                <LeadFunnelChart leads={metrics?._raw?.leads || []} />
               </div>
             </div>
 
             {/* Charts Row 2 */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              <RevenueChart />
-              <ProjectPerformanceChart />
+              <RevenueChart payments={metrics?._raw?.payments || []} />
+              <ProjectPerformanceChart
+                projects={metrics?._raw?.projects || []}
+                units={metrics?._raw?.units || []}
+                bookings={metrics?._raw?.bookings || []}
+                payments={metrics?._raw?.payments || []}
+              />
             </div>
           </>
         );
@@ -501,7 +515,7 @@ export const AdminDashboard = () => {
             View All Leads
           </Button>
         </div>
-        <LeadsTable limit={5} showActions={false} />
+        <LeadsTable limit={5} showActions={false} leads={metrics?._raw?.leads || []} />
       </div>
 
       {/* Goals Modal */}

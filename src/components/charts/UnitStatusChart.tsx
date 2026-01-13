@@ -2,10 +2,11 @@ import { motion } from "framer-motion";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { useEffect, useState } from "react";
 import { unitsService } from "@/api";
+import type { UnitDb } from "@/api/services/units.service";
 
 type Row = { name: string; value: number; color: string };
 
-export const UnitStatusChart = () => {
+export const UnitStatusChart = (props: { units?: UnitDb[] }) => {
   const [data, setData] = useState<Row[]>([
     { name: "Available", value: 0, color: "hsl(var(--success))" },
     { name: "Booked", value: 0, color: "hsl(var(--warning))" },
@@ -13,27 +14,35 @@ export const UnitStatusChart = () => {
   ]);
 
   useEffect(() => {
+    const compute = (units: UnitDb[]) => {
+      let available = 0;
+      let booked = 0;
+      let sold = 0;
+
+      for (const u of units) {
+        const s = String((u as any).status);
+        if (s === 'SOLD') sold += 1;
+        else if (s === 'BOOKED') booked += 1;
+        else available += 1;
+      }
+
+      setData([
+        { name: "Available", value: available, color: "hsl(var(--success))" },
+        { name: "Booked", value: booked, color: "hsl(var(--warning))" },
+        { name: "Sold", value: sold, color: "hsl(var(--primary))" },
+      ]);
+    };
+
+    if (props.units) {
+      compute(props.units);
+      return;
+    }
+
     void (async () => {
       try {
         const res = await unitsService.list();
         const units = res.success ? (res.data || []) : [];
-
-        let available = 0;
-        let booked = 0;
-        let sold = 0;
-
-        for (const u of units) {
-          const s = String(u.status);
-          if (s === 'SOLD') sold += 1;
-          else if (s === 'BOOKED') booked += 1;
-          else available += 1;
-        }
-
-        setData([
-          { name: "Available", value: available, color: "hsl(var(--success))" },
-          { name: "Booked", value: booked, color: "hsl(var(--warning))" },
-          { name: "Sold", value: sold, color: "hsl(var(--primary))" },
-        ]);
+        compute(units as any);
       } catch {
         setData([
           { name: "Available", value: 0, color: "hsl(var(--success))" },
@@ -42,7 +51,7 @@ export const UnitStatusChart = () => {
         ]);
       }
     })();
-  }, []);
+  }, [props.units]);
 
   return (
     <motion.div

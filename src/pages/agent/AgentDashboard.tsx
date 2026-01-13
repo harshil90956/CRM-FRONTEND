@@ -245,7 +245,7 @@ export const AgentDashboard = () => {
             View All
           </Button>
         </div>
-        <LeadsTable limit={5} />
+        <LeadsTable limit={5} leads={leads} />
       </div>
 
       {/* Today's Goals Sheet */}

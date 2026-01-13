@@ -11,20 +11,67 @@ import {
 } from "recharts";
 import { useEffect, useState } from "react";
 import { bookingsService, paymentsService, projectsService, unitsService } from "@/api";
+import type { BookingDb } from "@/api/services/bookings.service";
+import type { PaymentDb } from "@/api/services/payments.service";
+import type { ProjectDb } from "@/api/services/projects.service";
+import type { UnitDb } from "@/api/services/units.service";
 
 type ProjectPerfRow = { name: string; bookings: number; revenue: number };
 
-export const ProjectPerformanceChart = () => {
+export const ProjectPerformanceChart = (props: {
+  projects?: ProjectDb[];
+  units?: UnitDb[];
+  bookings?: BookingDb[];
+  payments?: PaymentDb[];
+}) => {
   const [rows, setRows] = useState<ProjectPerfRow[]>([]);
 
   useEffect(() => {
+    const compute = (projects: ProjectDb[], units: UnitDb[], bookings: BookingDb[], payments: PaymentDb[]) => {
+      const projectIdByUnitId = new Map<string, string>();
+      for (const u of units) {
+        if ((u as any).id && (u as any).projectId) projectIdByUnitId.set((u as any).id, (u as any).projectId);
+      }
+
+      const bookingsByProjectId = new Map<string, number>();
+      for (const b of bookings) {
+        const pid = (b as any).projectId || projectIdByUnitId.get((b as any).unitId) || '';
+        if (!pid) continue;
+        bookingsByProjectId.set(pid, (bookingsByProjectId.get(pid) || 0) + 1);
+      }
+
+      const revenueByProjectId = new Map<string, number>();
+      for (const pay of payments) {
+        if (String((pay as any).status) !== 'Received') continue;
+        const pid = projectIdByUnitId.get((pay as any).unitId) || '';
+        if (!pid) continue;
+        revenueByProjectId.set(pid, (revenueByProjectId.get(pid) || 0) + ((pay as any).amount || 0));
+      }
+
+      const next: ProjectPerfRow[] = [];
+      for (const p of projects) {
+        const bookingsCount = bookingsByProjectId.get((p as any).id) || 0;
+        const revenueAmount = revenueByProjectId.get((p as any).id) || 0;
+        const revenueCr = Number((revenueAmount / 10000000).toFixed(2));
+        next.push({ name: (p as any).name, bookings: bookingsCount, revenue: revenueCr });
+      }
+
+      const hasAny = next.some((r) => r.bookings > 0 || r.revenue > 0);
+      setRows(hasAny ? next : []);
+    };
+
     void (async () => {
       try {
+        const needProjects = props.projects === undefined;
+        const needUnits = props.units === undefined;
+        const needBookings = props.bookings === undefined;
+        const needPayments = props.payments === undefined;
+
         const [projectsRes, unitsRes, bookingsRes, paymentsRes] = await Promise.all([
-          projectsService.list(),
-          unitsService.list(),
-          bookingsService.list(),
-          paymentsService.list(),
+          needProjects ? projectsService.list() : Promise.resolve({ success: true, data: props.projects } as any),
+          needUnits ? unitsService.list() : Promise.resolve({ success: true, data: props.units } as any),
+          needBookings ? bookingsService.list() : Promise.resolve({ success: true, data: props.bookings } as any),
+          needPayments ? paymentsService.list() : Promise.resolve({ success: true, data: props.payments } as any),
         ]);
 
         const projects = projectsRes.success ? (projectsRes.data || []) : [];
@@ -32,41 +79,12 @@ export const ProjectPerformanceChart = () => {
         const bookings = bookingsRes.success ? (bookingsRes.data || []) : [];
         const payments = paymentsRes.success ? (paymentsRes.data || []) : [];
 
-        const projectIdByUnitId = new Map<string, string>();
-        for (const u of units) {
-          if (u.id && u.projectId) projectIdByUnitId.set(u.id, u.projectId);
-        }
-
-        const bookingsByProjectId = new Map<string, number>();
-        for (const b of bookings) {
-          const pid = b.projectId || projectIdByUnitId.get(b.unitId) || '';
-          if (!pid) continue;
-          bookingsByProjectId.set(pid, (bookingsByProjectId.get(pid) || 0) + 1);
-        }
-
-        const revenueByProjectId = new Map<string, number>();
-        for (const pay of payments) {
-          if (String(pay.status) !== 'Received') continue;
-          const pid = projectIdByUnitId.get(pay.unitId) || '';
-          if (!pid) continue;
-          revenueByProjectId.set(pid, (revenueByProjectId.get(pid) || 0) + (pay.amount || 0));
-        }
-
-        const next: ProjectPerfRow[] = [];
-        for (const p of projects) {
-          const bookingsCount = bookingsByProjectId.get(p.id) || 0;
-          const revenueAmount = revenueByProjectId.get(p.id) || 0;
-          const revenueCr = Number((revenueAmount / 10000000).toFixed(2));
-          next.push({ name: p.name, bookings: bookingsCount, revenue: revenueCr });
-        }
-
-        const hasAny = next.some((r) => r.bookings > 0 || r.revenue > 0);
-        setRows(hasAny ? next : []);
+        compute(projects as any, units as any, bookings as any, payments as any);
       } catch {
         setRows([]);
       }
     })();
-  }, []);
+  }, [props.bookings, props.payments, props.projects, props.units]);
 
   return (
     <motion.div

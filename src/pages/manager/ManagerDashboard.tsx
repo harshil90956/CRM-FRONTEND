@@ -24,7 +24,7 @@ import { DashboardTabs, DashboardTab } from "@/components/dashboard/DashboardTab
 import { LiveMetricsCard } from "@/components/dashboard/LiveMetricsCard";
 import { SummaryKPICard } from "@/components/dashboard/SummaryKPICard";
 import { useToast } from "@/hooks/use-toast";
-import { leadsService, projectsService, unitsService } from "@/api";
+import { bookingsService, leadsService, managerDashboardService, paymentsService } from "@/api";
 import { useAppStore } from "@/stores/appStore";
 
 const leadFields = ["name", "email", "phone", "status", "project", "budget"];
@@ -111,16 +111,16 @@ export const ManagerDashboard = () => {
         return Number.isFinite(n) ? n : 0;
       };
 
-      const [paged, summary, agents, projectsRes, unitsRes] = await Promise.all([
-        leadsService.getManagerLeads({ page: 1, pageSize: 500 }),
-        leadsService.getManagerLeadsSummary().catch(() => ({ total: 0, new: 0, qualified: 0, converted: 0 } as any)),
-        leadsService.getManagerAgents().catch(() => []),
-        projectsService.list().catch(() => ({ success: true, data: [] } as any)),
-        unitsService.list().catch(() => ({ success: true, data: [] } as any)),
+      const [overviewRes, bookingsRes, paymentsRes] = await Promise.all([
+        managerDashboardService.overview(),
+        bookingsService.list().catch(() => ({ success: true, data: [] } as any)),
+        paymentsService.list().catch(() => ({ success: true, data: [] } as any)),
       ]);
 
-      const leads = (paged?.items || []) as any[];
-      const leadTotal = Number((summary as any)?.total ?? leads.length);
+      const overview = overviewRes.success ? overviewRes.data : null;
+
+      const leads = (overview?.paged?.items || []) as any[];
+      const leadTotal = Number(overview?.summary?.total ?? leads.length);
 
       const newToday = leads.filter((l) => createdDayKey(l.createdAt) === todayKey).length;
       const newYesterday = leads.filter((l) => createdDayKey(l.createdAt) === yesterdayKey).length;
@@ -136,8 +136,11 @@ export const ManagerDashboard = () => {
         .filter((l) => createdMonthKey(l.createdAt) === monthKey);
       const revenueThisMonth = convertedThisMonth.reduce((sum, l) => sum + parseBudget(l.budget), 0);
 
-      const projects = projectsRes?.success ? (projectsRes.data || []) : [];
-      const units = unitsRes?.success ? (unitsRes.data || []) : [];
+      const agents = (overview?.agents || []) as any[];
+      const projects = (overview?.projects || []) as any[];
+      const units = (overview?.units || []) as any[];
+      const bookings = bookingsRes.success ? (bookingsRes.data || []) : [];
+      const payments = paymentsRes.success ? (paymentsRes.data || []) : [];
       const activeProperties = projects.filter((p: any) => !p.isClosed && String(p.status).toUpperCase() !== 'CLOSED').length;
 
       setMetrics({
@@ -153,7 +156,7 @@ export const ManagerDashboard = () => {
         leadsThisMonth,
         revenueThisMonth,
         activeProperties,
-        _raw: { leads, agents, projects, units },
+        _raw: { leads, agents, projects, units, bookings, payments },
       });
     } catch (error) {
       console.error('Failed to load metrics:', error);
@@ -170,7 +173,7 @@ export const ManagerDashboard = () => {
         leadsThisMonth: 0,
         revenueThisMonth: 0,
         activeProperties: 0,
-        _raw: { leads: [], agents: [], projects: [], units: [] },
+        _raw: { leads: [], agents: [], projects: [], units: [], bookings: [], payments: [] },
       });
     } finally {
       setIsLoading(false);
@@ -401,14 +404,24 @@ export const ManagerDashboard = () => {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <LeadFunnelChart />
-        <ProjectPerformanceChart />
+        <LeadFunnelChart leads={metrics?._raw?.leads ?? []} />
+        <ProjectPerformanceChart
+          projects={metrics?._raw?.projects ?? []}
+          units={metrics?._raw?.units ?? []}
+          bookings={metrics?._raw?.bookings ?? []}
+          payments={metrics?._raw?.payments ?? []}
+        />
       </div>
 
       {/* Activity & Agents */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <TopAgentsCard />
-        <ActivityCard />
+        <TopAgentsCard users={metrics?._raw?.agents ?? []} leads={metrics?._raw?.leads ?? []} />
+        <ActivityCard
+          users={metrics?._raw?.agents ?? []}
+          leads={metrics?._raw?.leads ?? []}
+          bookings={metrics?._raw?.bookings ?? []}
+          payments={metrics?._raw?.payments ?? []}
+        />
       </div>
 
       {/* Tab Content */}

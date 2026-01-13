@@ -11,6 +11,7 @@ import {
   Legend,
 } from "recharts";
 import { paymentsService } from "@/api";
+import type { PaymentDb } from "@/api/services/payments.service";
 
 type RevenuePoint = {
   month: string;
@@ -18,7 +19,7 @@ type RevenuePoint = {
   target: number;
 };
 
-export const RevenueChart = () => {
+export const RevenueChart = (props: { payments?: PaymentDb[] }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [points, setPoints] = useState<RevenuePoint[]>([]);
 
@@ -37,35 +38,44 @@ export const RevenueChart = () => {
   }, []);
 
   useEffect(() => {
+    const compute = (payments: PaymentDb[]) => {
+      const totals = new Map<string, number>();
+      for (const p of payments) {
+        if (String(p.status) !== 'Received') continue;
+        const d = new Date(p.paidAt || p.createdAt);
+        if (!Number.isFinite(d.getTime())) continue;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        totals.set(key, (totals.get(key) || 0) + (p.amount || 0));
+      }
+
+      const data: RevenuePoint[] = monthKeys.map(({ key, label }) => {
+        const amount = totals.get(key) || 0;
+        const revenueCr = Number((amount / 10000000).toFixed(2));
+        return { month: label, revenue: revenueCr, target: 0 };
+      });
+
+      setPoints(data);
+    };
+
+    if (props.payments) {
+      setIsLoading(false);
+      compute(props.payments);
+      return;
+    }
+
     void (async () => {
       setIsLoading(true);
       try {
         const res = await paymentsService.list();
         const payments = res.success ? (res.data || []) : [];
-
-        const totals = new Map<string, number>();
-        for (const p of payments) {
-          if (String(p.status) !== 'Received') continue;
-          const d = new Date(p.paidAt || p.createdAt);
-          if (!Number.isFinite(d.getTime())) continue;
-          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          totals.set(key, (totals.get(key) || 0) + (p.amount || 0));
-        }
-
-        const data: RevenuePoint[] = monthKeys.map(({ key, label }) => {
-          const amount = totals.get(key) || 0;
-          const revenueCr = Number((amount / 10000000).toFixed(2));
-          return { month: label, revenue: revenueCr, target: 0 };
-        });
-
-        setPoints(data);
+        compute(payments);
       } catch {
         setPoints([]);
       } finally {
         setIsLoading(false);
       }
     })();
-  }, [monthKeys]);
+  }, [monthKeys, props.payments]);
 
   return (
     <motion.div
