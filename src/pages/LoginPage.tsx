@@ -10,6 +10,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { useAppStore } from "@/stores/appStore";
 import type { AuthRole } from "@/stores/appStore";
 import { toast } from "sonner";
+import { useResolvedTenantId } from "@/lib/tenant";
 import { cn } from "@/lib/utils";
 
 const roleConfig: Record<AuthRole, { label: string; icon: any; path: string; description: string }> = {
@@ -24,6 +25,7 @@ export const LoginPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { sendOtp, login, isLoading } = useAppStore();
+  const tenantId = useResolvedTenantId();
   const [step, setStep] = useState<"role" | "email" | "otp" | "success">("role");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
@@ -72,7 +74,7 @@ export const LoginPage = () => {
       toast.error("Please enter a valid 6-digit OTP");
       return;
     }
-    const user = await login(email, otp);
+    const user = await login(email, otp, tenantId);
     if (user) {
       if (selectedRole && user.role !== selectedRole) {
         toast.error(`This account is ${roleConfig[user.role].label}. Please select the correct role.`);

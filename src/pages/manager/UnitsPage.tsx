@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Home, Search, Plus, Grid, List } from "lucide-react";
+import { Home, Search, Grid, List } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { KPICard } from "@/components/cards/KPICard";
 import { Button } from "@/components/ui/button";
@@ -8,52 +8,91 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { units, projects } from "@/data/mockData";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
-import { getUnitDisplayType, getUnitArea, getUnitLocation, formatPrice, getStatusStyle, getStatusLabel } from "@/lib/unitHelpers";
+import { useQuery } from "@tanstack/react-query";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
+import { unitsService, type ManagerUnit, type UnitStatus, type UnitType } from "@/api/services/units.service";
 
 export const ManagerUnitsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [newUnit, setNewUnit] = useState({ unitNo: "", project: "", tower: "", floor: "", type: "2 BHK", area: "", price: "" });
+  const [statusFilter, setStatusFilter] = useState<'all' | UnitStatus>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | UnitType>('all');
 
-  const filteredUnits = units.filter(u => {
-    const matchesSearch = u.unitNo.toLowerCase().includes(search.toLowerCase()) || u.project.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === "all" || u.status === statusFilter;
-    const matchesType = typeFilter === "all" || getUnitDisplayType(u) === typeFilter;
-    return matchesSearch && matchesStatus && matchesType;
+  const formatPriceInr = (price: number) => {
+    const value = Number(price) || 0;
+    return `₹${value.toLocaleString('en-IN')}`;
+  };
+
+  const statusLabel = (status: UnitStatus) => {
+    const map: Record<UnitStatus, string> = {
+      AVAILABLE: 'Available',
+      BOOKED: 'Booked',
+      SOLD: 'Sold',
+      ON_HOLD: 'On Hold',
+    };
+    return map[status] || status;
+  };
+
+  const statusBadgeClass = (status: UnitStatus) => {
+    const map: Record<UnitStatus, string> = {
+      AVAILABLE: 'bg-success/10 text-success border-success/20',
+      BOOKED: 'bg-warning/10 text-warning border-warning/20',
+      SOLD: 'bg-muted text-muted-foreground border-border',
+      ON_HOLD: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-300 dark:border-yellow-800',
+    };
+    return map[status] || 'bg-muted text-muted-foreground border-border';
+  };
+
+  const { data: units = [], isLoading, isError, refetch } = useQuery({
+    queryKey: ['managerUnits'],
+    queryFn: () => unitsService.listManagerUnits(),
+    staleTime: 0,
   });
+
+  const filteredUnits = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return units.filter((u: ManagerUnit) => {
+      const matchesSearch =
+        !q ||
+        u.unitNumber.toLowerCase().includes(q) ||
+        u.project.name.toLowerCase().includes(q);
+      const matchesStatus = statusFilter === 'all' || u.status === statusFilter;
+      const matchesType = typeFilter === 'all' || u.type === typeFilter;
+      return matchesSearch && matchesStatus && matchesType;
+    });
+  }, [units, search, statusFilter, typeFilter]);
 
   const { page, setPage, totalPages, pageItems: paginatedUnits } = useClientPagination(filteredUnits, { pageSize: 12 });
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, statusFilter, typeFilter, setPage]);
-
-  const handleAddUnit = () => {
-    toast.success(`Unit ${newUnit.unitNo} added successfully`);
-    setIsAddOpen(false);
-    setNewUnit({ unitNo: "", project: "", tower: "", floor: "", type: "2 BHK", area: "", price: "" });
-  };
+  const kpis = useMemo(() => {
+    const total = units.length;
+    const available = units.filter((u) => u.status === 'AVAILABLE').length;
+    const booked = units.filter((u) => u.status === 'BOOKED').length;
+    const sold = units.filter((u) => u.status === 'SOLD').length;
+    return { total, available, booked, sold };
+  }, [units]);
 
   return (
     <PageWrapper title="Unit Management" description="Manage property units and inventory." sidebarCollapsed={sidebarCollapsed}
-      actions={<Button className="w-full sm:w-auto" size="sm" onClick={() => setIsAddOpen(true)}><Plus className="w-4 h-4 mr-2" />Add Unit</Button>}>
-      
+      actions={
+        <Button
+          className="w-full sm:w-auto"
+          size="sm"
+          variant="secondary"
+          disabled
+        >
+          Add Unit
+        </Button>
+      }>
+
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
-        <KPICard title="Total Units" value={units.length} icon={Home} delay={0} />
-        <KPICard title="Available" value={units.filter(u => u.status === 'AVAILABLE').length} icon={Home} iconColor="text-success" delay={0.1} />
-        <KPICard title="Booked" value={units.filter(u => u.status === 'BOOKED').length} icon={Home} iconColor="text-warning" delay={0.2} />
-        <KPICard title="Sold" value={units.filter(u => u.status === 'SOLD').length} icon={Home} iconColor="text-info" delay={0.3} />
+        <KPICard title="Total Units" value={kpis.total} icon={Home} delay={0} />
+        <KPICard title="Available" value={kpis.available} icon={Home} iconColor="text-success" delay={0.1} />
+        <KPICard title="Booked" value={kpis.booked} icon={Home} iconColor="text-warning" delay={0.2} />
+        <KPICard title="Sold" value={kpis.sold} icon={Home} iconColor="text-info" delay={0.3} />
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 mb-6">
@@ -61,97 +100,73 @@ export const ManagerUnitsPage = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Search units..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
           <SelectTrigger className="w-full sm:w-36"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="AVAILABLE">Available</SelectItem>
-            <SelectItem value="HOLD">On Hold</SelectItem>
+            <SelectItem value="ON_HOLD">On Hold</SelectItem>
             <SelectItem value="BOOKED">Booked</SelectItem>
             <SelectItem value="SOLD">Sold</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
+        <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as any)}>
           <SelectTrigger className="w-full sm:w-36"><SelectValue placeholder="Type" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
-            <SelectItem value="1 BHK">1 BHK</SelectItem>
-            <SelectItem value="2 BHK">2 BHK</SelectItem>
-            <SelectItem value="3 BHK">3 BHK</SelectItem>
-            <SelectItem value="4 BHK">4 BHK</SelectItem>
+            <SelectItem value="RESIDENTIAL">Residential</SelectItem>
+            <SelectItem value="COMMERCIAL">Commercial</SelectItem>
           </SelectContent>
         </Select>
+
         <div className="flex border rounded-lg w-full sm:w-auto">
           <Button variant={viewMode === "grid" ? "secondary" : "ghost"} size="icon" onClick={() => setViewMode("grid")}><Grid className="w-4 h-4" /></Button>
           <Button variant={viewMode === "list" ? "secondary" : "ghost"} size="icon" onClick={() => setViewMode("list")}><List className="w-4 h-4" /></Button>
         </div>
       </div>
 
-      <div className={cn("grid gap-4", viewMode === "grid" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" : "grid-cols-1")}>
-        {paginatedUnits.map((unit) => (
-          <Card key={unit.id} className="p-4 hover:shadow-md transition-shadow cursor-pointer">
-            <div className="flex items-start justify-between mb-3">
-              <Badge variant={unit.status === "AVAILABLE" ? "default" : unit.status === "BOOKED" ? "secondary" : "outline"}
-                className={unit.status === "AVAILABLE" ? "bg-success/10 text-success border-success/20" : unit.status === "BOOKED" ? "bg-warning/10 text-warning border-warning/20" : ""}>
-                {getStatusLabel(unit.status)}
-              </Badge>
-              <span className="text-lg font-semibold text-primary">{formatPrice(unit.price)}</span>
-            </div>
-            <h4 className="font-semibold">{unit.unitNo}</h4>
-            <p className="text-sm text-muted-foreground mb-2">{unit.project}</p>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span>{getUnitDisplayType(unit)}</span>
-              <span>•</span>
-              <span>{getUnitArea(unit)}</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">{getUnitLocation(unit)}</p>
-          </Card>
-        ))}
-      </div>
+      {isLoading ? (
+        <div className="text-sm text-muted-foreground">Loading units...</div>
+      ) : isError ? (
+        <div className="space-y-3">
+          <div className="text-sm text-destructive">Failed to load units.</div>
+          <Button size="sm" variant="outline" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      ) : filteredUnits.length === 0 ? (
+        <div className="text-sm text-muted-foreground">No units found.</div>
+      ) : (
+        <div className={cn("grid gap-4", viewMode === "grid" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" : "grid-cols-1")}>
+          {paginatedUnits.map((unit) => (
+            <Card key={unit.id} className="p-4 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <Badge variant="outline" className={statusBadgeClass(unit.status)}>
+                  {statusLabel(unit.status)}
+                </Badge>
+                <span className="text-lg font-semibold text-primary">{formatPriceInr(unit.price)}</span>
+              </div>
+
+              <h4 className="font-semibold">{unit.unitNumber}</h4>
+              <p className="text-sm text-muted-foreground mb-2">{unit.project.name}</p>
+
+              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                <span>{unit.type === 'RESIDENTIAL' ? (unit.bhk ? `${unit.bhk} BHK` : 'Residential') : 'Commercial'}</span>
+                <span>•</span>
+                <span>{unit.sizeSqFt ? `${unit.sizeSqFt} sq.ft` : 'N/A'}</span>
+              </div>
+
+              {(unit.tower || unit.floor !== undefined) ? (
+                <p className="text-xs text-muted-foreground mt-2">
+                  {unit.tower ? `${unit.tower}` : ''}{unit.tower && unit.floor !== undefined ? ', ' : ''}{unit.floor !== undefined ? `Floor ${unit.floor}` : ''}
+                </p>
+              ) : null}
+            </Card>
+          ))}
+        </div>
+      )}
 
       <PaginationBar page={page} totalPages={totalPages} onPageChange={setPage} className="px-0" />
-
-      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Add New Unit</DialogTitle><DialogDescription>Add a new unit to the inventory.</DialogDescription></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Unit Number *</Label><Input placeholder="A-101" value={newUnit.unitNo} onChange={(e) => setNewUnit({...newUnit, unitNo: e.target.value})} /></div>
-              <div className="space-y-2">
-                <Label>Project *</Label>
-                <Select value={newUnit.project} onValueChange={(v) => setNewUnit({...newUnit, project: v})}>
-                  <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
-                  <SelectContent>{projects.map(p => <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Tower</Label><Input placeholder="Tower A" value={newUnit.tower} onChange={(e) => setNewUnit({...newUnit, tower: e.target.value})} /></div>
-              <div className="space-y-2"><Label>Floor</Label><Input type="number" placeholder="1" value={newUnit.floor} onChange={(e) => setNewUnit({...newUnit, floor: e.target.value})} /></div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Type *</Label>
-                <Select value={newUnit.type} onValueChange={(v) => setNewUnit({...newUnit, type: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1 BHK">1 BHK</SelectItem>
-                    <SelectItem value="2 BHK">2 BHK</SelectItem>
-                    <SelectItem value="3 BHK">3 BHK</SelectItem>
-                    <SelectItem value="4 BHK">4 BHK</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2"><Label>Area</Label><Input placeholder="1250 sq.ft" value={newUnit.area} onChange={(e) => setNewUnit({...newUnit, area: e.target.value})} /></div>
-            </div>
-            <div className="space-y-2"><Label>Price</Label><Input placeholder="₹85L" value={newUnit.price} onChange={(e) => setNewUnit({...newUnit, price: e.target.value})} /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-            <Button className="w-full sm:w-auto" onClick={handleAddUnit}>Add Unit</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </PageWrapper>
   );
 };

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Search, MapPin, Building2, Heart, ChevronRight, ArrowLeft, Phone, Mail, Calendar, Star } from "lucide-react";
@@ -7,16 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { projects } from "@/data/mockData";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 import { ReviewModal } from "@/components/reviews/ReviewModal";
-import { reviewsService } from "@/api";
+import { publicProjectsService, reviewsService } from "@/api";
 import { useAppStore } from "@/stores/appStore";
 import { RatingStars } from "@/components/reviews/RatingStars";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ReviewForm } from "@/components/reviews/ReviewForm";
 import { ProjectReviewsSection } from "@/components/reviews/ProjectReviewsSection";
+import { useQuery } from "@tanstack/react-query";
+import type { PublicProjectCard } from "@/api/services/public-projects.service";
 
 export const CustomerProjectsPage = () => {
   const { currentUser } = useAppStore();
@@ -24,6 +25,18 @@ export const CustomerProjectsPage = () => {
   const [searchParams] = useSearchParams();
   const [selectedProject, setSelectedProject] = useState<any>(null);
   const navigate = useNavigate();
+
+  const { data: projectsRes, isLoading } = useQuery({
+    queryKey: ['publicGlobalProjects'],
+    queryFn: () => publicProjectsService.globalList(),
+    enabled: true,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: 0,
+  });
+
+  const projects = (projectsRes?.success ? (projectsRes.data || []) : []) as PublicProjectCard[];
 
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [reviewTarget, setReviewTarget] = useState<{ id: string; name: string } | null>(null);
@@ -73,19 +86,13 @@ export const CustomerProjectsPage = () => {
 
   const loadApprovedCounts = async () => {
     try {
-      const tenantId = String((currentUser as any)?.tenantId || "");
-      if (!tenantId) {
-        setApprovedCountByProjectId(new Map());
-        return;
-      }
-
       const next = new Map<string, number>();
       await Promise.all(
         projects.map(async (p) => {
           const projectId = String((p as any)?.id || "");
           if (!projectId) return;
           try {
-            const res = await reviewsService.publicList({ type: 'project', targetId: projectId, tenantId, limit: 1, offset: 0 });
+            const res = await reviewsService.publicList({ type: 'project', targetId: projectId, limit: 1, offset: 0 });
             const meta = (res as any)?.data?.meta;
             const total = Number(meta?.total) || 0;
             next.set(projectId, total);
@@ -104,20 +111,30 @@ export const CustomerProjectsPage = () => {
   useEffect(() => {
     const projectId = searchParams.get('project');
     if (projectId) {
-      const project = projects.find(p => p.id === projectId);
+      const project = projects.find((p) => String(p.id) === String(projectId));
       if (project) {
-        setSelectedProject(project);
+        setSelectedProject({
+          ...project,
+          priceRange: `${project.startingPrice ? `₹${Number(project.startingPrice).toLocaleString('en-IN')}` : ''}`,
+          status: 'Active',
+          totalUnits: project.availableUnitsCount,
+          availableUnits: project.availableUnitsCount,
+          soldUnits: 0,
+          bookedUnits: 0,
+          amenities: [],
+          mainType: project.mainType,
+        });
         setPublicTotalForSelectedProject(null);
       }
     } else {
       setSelectedProject(null);
       setPublicTotalForSelectedProject(null);
     }
-  }, [searchParams]);
+  }, [searchParams, projects]);
 
   useEffect(() => {
     loadApprovedCounts();
-  }, [currentUser?.tenantId]);
+  }, [projects.length]);
 
   useEffect(() => {
     loadMyReviewsFromStorage();
@@ -182,10 +199,14 @@ export const CustomerProjectsPage = () => {
     return { id: id ? String(id) : undefined, rating, comment };
   };
 
-  const filteredProjects = projects.filter(p => 
-    p.name.toLowerCase().includes(search.toLowerCase()) || 
-    p.location.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredProjects = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return projects;
+    return projects.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.location.toLowerCase().includes(q)
+    );
+  }, [projects, search]);
 
   const { page, setPage, totalPages, pageItems: paginatedProjects } = useClientPagination(filteredProjects, { pageSize: 9 });
 
@@ -327,7 +348,7 @@ export const CustomerProjectsPage = () => {
                 <ProjectReviewsSection
                   type="project"
                   targetId={String(selectedProject.id)}
-                  tenantId={String((currentUser as any)?.tenantId || "")}
+                  tenantId={String((currentUser as any)?.tenantId || "") || undefined}
                   currentUserId={String((currentUser as any)?.id || "")}
                   onMeta={(meta) => setPublicTotalForSelectedProject(Number(meta?.total) || 0)}
                 />
@@ -414,8 +435,11 @@ export const CustomerProjectsPage = () => {
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {paginatedProjects.map((project, index) => (
+            {isLoading ? (
+              <div className="text-sm text-muted-foreground">Loading projects...</div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {paginatedProjects.map((project: any, index) => (
                 <motion.div 
                   key={project.id} 
                   initial={{ opacity: 0, y: 20 }} 
@@ -425,8 +449,8 @@ export const CustomerProjectsPage = () => {
                   <Card className="overflow-hidden hover:shadow-lg transition-shadow">
                     <div className="h-48 bg-muted relative flex items-center justify-center">
                       <Building2 className="w-16 h-16 text-muted-foreground/30" />
-                      <Badge className={`absolute top-3 left-3 ${project.status === 'Active' ? 'bg-success/90' : project.status === 'Launching' ? 'bg-warning/90' : 'bg-muted'}`}>
-                        {project.status}
+                      <Badge className={`absolute top-3 left-3 bg-success/90`}>
+                        Active
                       </Badge>
                       <Button variant="ghost" size="icon" className="absolute top-3 right-3 bg-card/80">
                         <Heart className="w-4 h-4" />
@@ -470,7 +494,7 @@ export const CustomerProjectsPage = () => {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-xs text-muted-foreground">Starting from</p>
-                          <p className="text-lg font-semibold text-primary">{project.priceRange.split(' - ')[0]}</p>
+                          <p className="text-lg font-semibold text-primary">{`₹${Number(project.startingPrice || 0).toLocaleString('en-IN')}`}</p>
                         </div>
                         <div className="flex flex-col items-end">
                           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -512,6 +536,7 @@ export const CustomerProjectsPage = () => {
                 </motion.div>
               ))}
             </div>
+            )}
 
             <PaginationBar page={page} totalPages={totalPages} onPageChange={setPage} className="px-0" />
           </div>

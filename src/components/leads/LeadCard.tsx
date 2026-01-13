@@ -13,7 +13,7 @@ import type { LeadDb } from "@/api/services/leads.service";
 import { format } from "date-fns";
 
 interface LeadCardProps {
-  lead: LeadDb & {
+  lead: Omit<LeadDb, 'assignedTo'> & {
     assignedTo?: string | null;
     project?: { name: string } | null;
     assignedToUser?: { name: string } | null;

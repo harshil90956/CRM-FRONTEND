@@ -33,7 +33,9 @@ export type CreateBookingInput = {
   managerId?: string;
 };
 
-export type CreateHoldBookingInput = CreateBookingInput;
+export type CreateHoldBookingInput = CreateBookingInput & {
+  holdExpiresAt?: string;
+};
 
 export type ApproveHoldInput = {
   status: 'HOLD_CONFIRMED';

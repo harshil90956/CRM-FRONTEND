@@ -1,9 +1,12 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppProvider } from "@/stores/appStore";
+import { useAppStore } from "@/stores/appStore";
+import { queryClient } from "@/lib/queryClient";
+import { useEffect } from "react";
 
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
@@ -66,11 +69,27 @@ import { CustomerPaymentsPage } from "./pages/customer/PaymentsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { HelpSupportPage } from "./pages/HelpSupportPage";
 
-const queryClient = new QueryClient();
+const AuthQuerySync = () => {
+  const qc = useQueryClient();
+  const { isAuthenticated, currentUser } = useAppStore();
+
+  useEffect(() => {
+    // Public customer data must not reuse stale failures across auth transitions.
+    qc.removeQueries({
+      predicate: (q) => {
+        const key0 = String((q.queryKey as any)?.[0] || '');
+        return key0 === 'publicProjects' || key0 === 'publicUnits' || key0 === 'publicReviews' || key0 === 'projectReviews';
+      },
+    });
+  }, [qc, isAuthenticated, (currentUser as any)?.tenantId]);
+
+  return null;
+};
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AppProvider>
+      <AuthQuerySync />
       <TooltipProvider>
         <Toaster />
         <Sonner />

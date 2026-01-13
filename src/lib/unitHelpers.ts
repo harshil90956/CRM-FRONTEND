@@ -13,26 +13,30 @@ export const isIndustrial = (unit: Unit): unit is IndustrialUnit =>
 
 export const getUnitDisplayType = (unit: Unit): string => {
   if (isResidential(unit)) {
-    return `${unit.bedrooms} BHK`;
+    const b = Number((unit as any)?.bedrooms);
+    return Number.isFinite(b) && b > 0 ? `${b} BHK` : 'Residential';
   }
   if (isCommercial(unit)) {
-    return unit.suitableFor;
+    return String((unit as any)?.suitableFor || 'Commercial');
   }
   if (isIndustrial(unit)) {
-    return unit.facilityType;
+    return String((unit as any)?.facilityType || 'Industrial');
   }
   return 'Unknown';
 };
 
 export const getUnitArea = (unit: Unit): string => {
   if (isResidential(unit)) {
-    return `${unit.carpetArea} sq.ft`;
+    const a = Number((unit as any)?.carpetArea);
+    return Number.isFinite(a) && a > 0 ? `${a} sq.ft` : 'N/A';
   }
   if (isCommercial(unit)) {
-    return `${unit.carpetArea} sq.ft`;
+    const a = Number((unit as any)?.carpetArea);
+    return Number.isFinite(a) && a > 0 ? `${a} sq.ft` : 'N/A';
   }
   if (isIndustrial(unit)) {
-    return `${unit.totalArea} sq.ft`;
+    const a = Number((unit as any)?.totalArea);
+    return Number.isFinite(a) && a > 0 ? `${a} sq.ft` : 'N/A';
   }
   return 'N/A';
 };
@@ -56,13 +60,16 @@ export const getUnitTower = (unit: Unit): string => {
 
 export const getUnitLocation = (unit: Unit): string => {
   if (isResidential(unit)) {
-    return `${unit.towerName}, Floor ${unit.floorNumber}`;
+    const tower = String((unit as any)?.towerName || '-');
+    const floor = Number((unit as any)?.floorNumber);
+    return Number.isFinite(floor) && floor > 0 ? `${tower}, Floor ${floor}` : `${tower}`;
   }
   if (isCommercial(unit)) {
-    return `Floor ${unit.floorNumber}`;
+    const floor = Number((unit as any)?.floorNumber);
+    return Number.isFinite(floor) && floor > 0 ? `Floor ${floor}` : '-';
   }
   if (isIndustrial(unit)) {
-    return unit.roadAccess;
+    return String((unit as any)?.roadAccess || '-');
   }
   return '-';
 };

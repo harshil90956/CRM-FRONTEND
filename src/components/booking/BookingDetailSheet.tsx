@@ -15,6 +15,7 @@ import { formatPrice } from "@/lib/unitHelpers";
 import { bookingsService, paymentsService } from "@/api";
 import { toast } from "@/hooks/use-toast";
 import { PaymentDetailDrawer } from "@/components/payments/PaymentDetailDrawer";
+import { useNavigate } from "react-router-dom";
 
 interface BookingDetailSheetProps {
   open: boolean;
@@ -25,6 +26,7 @@ interface BookingDetailSheetProps {
 }
 
 export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefresh }: BookingDetailSheetProps) => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -149,18 +151,35 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
     }
     setLoading(true);
     try {
-      await bookingsService.updateStatus(booking.id, {
-        status: 'BOOKING_PENDING_APPROVAL',
+      await bookingsService.cancel(booking.id, {
+        status: 'CANCELLED',
+        cancelledAt: new Date().toISOString(),
         cancellationReason: cancelReason.trim(),
-        managerNotes: `CANCEL_REQUESTED|${booking.status}`,
       } as any);
-      toast({ title: 'Requested', description: 'Cancellation request sent for approval.' });
+
+      toast({ title: 'Cancelled', description: 'Booking cancelled successfully.' });
       setCancelDialogOpen(false);
       setCancelReason('');
       onRefresh?.();
       onOpenChange(false);
+      if (role === 'customer') {
+        navigate('/customer/properties');
+      }
     } catch (error) {
-      toast({ title: 'Error', description: 'Failed to request cancellation', variant: 'destructive' });
+      try {
+        await bookingsService.updateStatus(booking.id, {
+          status: 'BOOKING_PENDING_APPROVAL',
+          cancellationReason: cancelReason.trim(),
+          managerNotes: `CANCEL_REQUESTED|${booking.status}`,
+        } as any);
+        toast({ title: 'Requested', description: 'Cancellation request sent for approval.' });
+        setCancelDialogOpen(false);
+        setCancelReason('');
+        onRefresh?.();
+        onOpenChange(false);
+      } catch {
+        toast({ title: 'Error', description: 'Failed to cancel booking', variant: 'destructive' });
+      }
     } finally {
       setLoading(false);
     }
@@ -230,7 +249,7 @@ export const BookingDetailSheet = ({ open, onOpenChange, booking, role, onRefres
   const canApproveBooking = (role === 'manager' || role === 'admin') && booking.status === 'BOOKING_PENDING_APPROVAL';
   const canCancel =
     role === 'customer' &&
-    !['CANCELLED', 'REFUNDED'].includes(booking.status) &&
+    ['HOLD_REQUESTED', 'HOLD_CONFIRMED', 'BOOKING_PENDING_APPROVAL', 'PAYMENT_PENDING'].includes(booking.status) &&
     !cancelRequestMeta;
 
   const canApproveCancelRequest =

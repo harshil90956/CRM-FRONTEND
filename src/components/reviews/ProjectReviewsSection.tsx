@@ -8,7 +8,7 @@ import { reviewsService, type ReviewDb } from "@/api";
 type ProjectReviewsSectionProps = {
   type: "project";
   targetId: string;
-  tenantId: string;
+  tenantId?: string;
   currentUserId?: string;
   onMeta?: (meta: { total: number; limit: number; offset: number }) => void;
 };
@@ -35,7 +35,7 @@ export const ProjectReviewsSection = ({ type, targetId, tenantId, currentUserId,
   };
 
   const loadFirst = async () => {
-    if (!type || !targetId || !tenantId) return;
+    if (!type || !targetId) return;
     setItems([]);
     setTotal(0);
     setOffset(0);
@@ -58,7 +58,7 @@ export const ProjectReviewsSection = ({ type, targetId, tenantId, currentUserId,
   };
 
   const loadMore = async () => {
-    if (!type || !targetId || !tenantId) return;
+    if (!type || !targetId) return;
     if (items.length >= total) return;
     setIsLoadingMore(true);
     try {

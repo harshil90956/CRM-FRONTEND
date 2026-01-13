@@ -7,13 +7,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { units, projects } from "@/data/mockData";
 import { toast } from "sonner";
-import { getUnitDisplayType, getUnitArea, formatPrice, getStatusLabel } from "@/lib/unitHelpers";
+import { publicProjectsService } from "@/api";
+import { useQuery } from "@tanstack/react-query";
 
 export const CustomerProfilePage = () => {
   const [profile, setProfile] = useState({ name: "Rajesh Kumar", email: "rajesh@email.com", phone: "+91 98765 43210" });
-  const savedProperties = units.slice(0, 3);
+  const savedProperties: any[] = [];
+
+  const { data: projectsRes } = useQuery({
+    queryKey: ['publicGlobalProjects'],
+    queryFn: () => publicProjectsService.globalList(),
+    enabled: true,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: 0,
+  });
+  const projects = projectsRes?.success ? (projectsRes.data || []) : [];
 
   const handleSave = () => toast.success("Profile updated successfully");
   const handleDownload = () => toast.success("Brochure download started");
@@ -77,16 +88,13 @@ export const CustomerProfilePage = () => {
               {savedProperties.map((unit) => (
                 <Card key={unit.id} className="p-4">
                   <div className="flex items-start justify-between mb-3">
-                    <Badge className="bg-success/10 text-success">{getStatusLabel(unit.status)}</Badge>
+                    <Badge className="bg-success/10 text-success">Saved</Badge>
                     <Button variant="ghost" size="icon" className="text-destructive"><Heart className="w-4 h-4 fill-current" /></Button>
                   </div>
-                  <h4 className="font-semibold">{unit.unitNo}</h4>
-                  <p className="text-sm text-muted-foreground mb-2">{unit.project}</p>
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
-                    <span>{getUnitDisplayType(unit)}</span><span>•</span><span>{getUnitArea(unit)}</span>
-                  </div>
+                  <h4 className="font-semibold">{String(unit.name || '')}</h4>
+                  <p className="text-sm text-muted-foreground mb-2">{String(unit.location || '')}</p>
                   <div className="flex items-center justify-between">
-                    <p className="text-lg font-semibold text-primary">{formatPrice(unit.price)}</p>
+                    <p className="text-lg font-semibold text-primary">{String(unit.price || '')}</p>
                     <Button size="sm">View Details</Button>
                   </div>
                 </Card>
@@ -105,7 +113,7 @@ export const CustomerProfilePage = () => {
             <Card className="p-6">
               <h2 className="text-lg font-semibold mb-4">Available Brochures</h2>
               <div className="space-y-3">
-                {projects.slice(0, 3).map((project) => (
+                {projects.slice(0, 3).map((project: any) => (
                   <div key={project.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                     <div>
                       <p className="font-medium">{project.name}</p>

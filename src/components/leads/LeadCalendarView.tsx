@@ -18,9 +18,11 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { LeadDb } from "@/api/services/leads.service";
 
+ type LeadCalendarItem = Omit<LeadDb, 'assignedTo'> & { assignedTo?: string | null };
+
 interface LeadCalendarViewProps {
-  leads: LeadDb[];
-  onLeadClick: (lead: LeadDb) => void;
+  leads: LeadCalendarItem[];
+  onLeadClick: (lead: LeadCalendarItem) => void;
 }
 
 export const LeadCalendarView = ({ leads, onLeadClick }: LeadCalendarViewProps) => {
@@ -35,7 +37,7 @@ export const LeadCalendarView = ({ leads, onLeadClick }: LeadCalendarViewProps) 
   }, [currentMonth]);
 
   const leadsByDate = useMemo(() => {
-    const map = new Map<string, LeadDb[]>();
+    const map = new Map<string, LeadCalendarItem[]>();
     leads.forEach(lead => {
       const dateKey = format(new Date(lead.createdAt), 'yyyy-MM-dd');
       if (!map.has(dateKey)) {
