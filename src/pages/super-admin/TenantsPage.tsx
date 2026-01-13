@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { paymentsService, projectsService, superAdminUsersService } from "@/api";
+import { superAdminUsersService } from "@/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useClientPagination } from "@/hooks/useClientPagination";
@@ -61,59 +61,21 @@ export const TenantsPage = () => {
   const loadTenants = async () => {
     setIsLoading(true);
     try {
-      const [usersRes, projectsRes, paymentsRes] = await Promise.all([
-        superAdminUsersService.list(),
-        projectsService.list(),
-        paymentsService.list(),
-      ]);
+      const res = await superAdminUsersService.tenantsAnalytics();
+      const items = res.data?.items || [];
 
-      const users = usersRes.data || [];
-      const projects = projectsRes.data || [];
-      const payments = paymentsRes.data || [];
-
-      const byTenant = new Map<string, typeof users>();
-      for (const u of users) {
-        const role = String(u.role || '').toUpperCase();
-        if (role === 'SUPER_ADMIN') continue;
-        const tenantKey = String(u.tenantId || '').trim();
-        const arr = byTenant.get(tenantKey) || [];
-        arr.push(u);
-        byTenant.set(tenantKey, arr);
-      }
-
-      const projectCountByTenant = new Map<string, number>();
-      for (const p of projects) {
-        projectCountByTenant.set(p.tenantId, (projectCountByTenant.get(p.tenantId) || 0) + 1);
-      }
-
-      const revenueByTenant = new Map<string, number>();
-      for (const pay of payments) {
-        if (String(pay.status) !== 'Received') continue;
-        revenueByTenant.set(pay.tenantId, (revenueByTenant.get(pay.tenantId) || 0) + (pay.amount || 0));
-      }
-
-      const rows: TenantRow[] = [];
-
-      for (const [tenantId, tenantUsers] of byTenant.entries()) {
-        const admins = tenantUsers
-          .filter((u) => String(u.role || '').toUpperCase() === 'ADMIN')
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        const admin = admins[0];
-        if (!admin) continue;
-
-        rows.push({
-          id: tenantId,
-          adminUserId: admin.id,
-          name: admin.name,
-          email: admin.email,
-          domain: undefined,
-          projects: projectCountByTenant.get(tenantId) || 0,
-          users: tenantUsers.length,
-          subscription: '—',
-          status: admin.isActive ? 'Active' : 'Suspended',
-          revenue: formatMoney(revenueByTenant.get(tenantId) || 0),
-        });
-      }
+      const rows: TenantRow[] = items.map((t) => ({
+        id: t.tenantId,
+        adminUserId: t.adminUserId,
+        name: t.name,
+        email: t.email,
+        domain: undefined,
+        projects: t.projects || 0,
+        users: t.users || 0,
+        subscription: t.subscription || '—',
+        status: t.status,
+        revenue: formatMoney(t.revenueReceivedAmount || 0),
+      }));
 
       rows.sort((a, b) => a.name.localeCompare(b.name));
       setTenants(rows);

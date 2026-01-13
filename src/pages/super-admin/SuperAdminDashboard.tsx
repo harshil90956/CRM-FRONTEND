@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -38,7 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { paymentsService, projectsService, superAdminUsersService } from "@/api";
+import { superAdminUsersService } from "@/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useClientPagination } from "@/hooks/useClientPagination";
@@ -60,7 +60,11 @@ export const SuperAdminDashboard = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [tenants, setTenants] = useState<TenantRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [totalTenants, setTotalTenants] = useState(0);
+  const [activeTenants, setActiveTenants] = useState(0);
+  const [totalUsers, setTotalUsers] = useState(0);
   const [totalReceivedAmount, setTotalReceivedAmount] = useState(0);
+  const [revenueSeries, setRevenueSeries] = useState<{ month: string; revenueCr: number; targetCr: number }[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newTenant, setNewTenant] = useState({
     name: "",
@@ -88,75 +92,50 @@ export const SuperAdminDashboard = () => {
   const loadTenants = async () => {
     setIsLoading(true);
     try {
-      const [usersRes, projectsRes, paymentsRes] = await Promise.all([
-        superAdminUsersService.list(),
-        projectsService.list(),
-        paymentsService.list(),
+      const [overviewRes, tenantsRes] = await Promise.all([
+        superAdminUsersService.overview(),
+        superAdminUsersService.tenantsAnalytics(),
       ]);
 
-      const users = usersRes.data || [];
-      const projects = projectsRes.data || [];
-      const payments = paymentsRes.data || [];
+      const overview = overviewRes.data;
+      const tenantsAnalytics = tenantsRes.data;
 
-      const byTenant = new Map<string, typeof users>();
-      for (const u of users) {
-        if (u.role === 'SUPER_ADMIN') continue;
-        const arr = byTenant.get(u.tenantId) || [];
-        arr.push(u);
-        byTenant.set(u.tenantId, arr);
-      }
+      setTotalTenants(overview?.kpis?.totalTenants || 0);
+      setActiveTenants(overview?.kpis?.activeTenants || 0);
+      setTotalUsers(overview?.kpis?.totalUsers || 0);
+      setTotalReceivedAmount(overview?.kpis?.platformRevenueReceivedAmount || 0);
+      setRevenueSeries(overview?.revenueSeries || []);
 
-      const projectCountByTenant = new Map<string, number>();
-      for (const p of projects) {
-        projectCountByTenant.set(p.tenantId, (projectCountByTenant.get(p.tenantId) || 0) + 1);
-      }
-
-      const revenueByTenant = new Map<string, number>();
-      let totalReceived = 0;
-      for (const pay of payments) {
-        if (String(pay.status) !== 'Received') continue;
-        const amount = pay.amount || 0;
-        revenueByTenant.set(pay.tenantId, (revenueByTenant.get(pay.tenantId) || 0) + amount);
-        totalReceived += amount;
-      }
-
-      const rows: TenantRow[] = [];
-
-      for (const [tenantId, tenantUsers] of byTenant.entries()) {
-        const admins = tenantUsers
-          .filter((u) => u.role === 'ADMIN')
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        const admin = admins[0];
-        if (!admin) continue;
-
-        rows.push({
-          id: tenantId,
-          adminUserId: admin.id,
-          name: admin.name,
-          email: admin.email,
-          projects: projectCountByTenant.get(tenantId) || 0,
-          users: tenantUsers.length,
-          subscription: '—',
-          status: admin.isActive ? 'Active' : 'Suspended',
-          revenue: formatMoney(revenueByTenant.get(tenantId) || 0),
-        });
-      }
+      const rows: TenantRow[] = (tenantsAnalytics?.items || []).map((t) => ({
+        id: t.tenantId,
+        adminUserId: t.adminUserId,
+        name: t.name,
+        email: t.email,
+        projects: t.projects || 0,
+        users: t.users || 0,
+        subscription: t.subscription || '—',
+        status: t.status,
+        revenue: formatMoney(t.revenueReceivedAmount || 0),
+      }));
 
       rows.sort((a, b) => a.name.localeCompare(b.name));
       setTenants(rows);
-      setTotalReceivedAmount(totalReceived);
     } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to load dashboard analytics');
       setTenants([]);
+      setTotalTenants(0);
+      setActiveTenants(0);
+      setTotalUsers(0);
       setTotalReceivedAmount(0);
+      setRevenueSeries([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const totalTenants = tenants.length;
-  const activeTenants = tenants.filter((t) => t.status === "Active").length;
   const totalRevenue = formatMoney(totalReceivedAmount);
-  const totalUsers = tenants.reduce((sum, t) => sum + t.users, 0);
+
+  const chartSeries = useMemo(() => revenueSeries, [revenueSeries]);
 
   const suspendedTenants = tenants.filter((t) => t.status === 'Suspended');
 
@@ -207,10 +186,10 @@ export const SuperAdminDashboard = () => {
     >
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <KPICard title="Total Tenants" value={totalTenants} change={8} changeLabel="this quarter" icon={Building2} delay={0} />
+        <KPICard title="Total Tenants" value={totalTenants} icon={Building2} delay={0} />
         <KPICard title="Active Subscriptions" value={activeTenants} icon={Activity} iconColor="text-success" delay={0.1} />
-        <KPICard title="Total Users" value={totalUsers} change={15} changeLabel="this month" icon={Users} iconColor="text-info" delay={0.2} />
-        <KPICard title="Platform Revenue" value={totalRevenue} change={22} changeLabel="YoY" icon={IndianRupee} iconColor="text-primary" delay={0.3} />
+        <KPICard title="Total Users" value={totalUsers} icon={Users} iconColor="text-info" delay={0.2} />
+        <KPICard title="Platform Revenue" value={totalRevenue} icon={IndianRupee} iconColor="text-primary" delay={0.3} />
       </div>
 
       {suspendedTenants.length > 0 && (
@@ -231,7 +210,7 @@ export const SuperAdminDashboard = () => {
 
       {/* Revenue Chart */}
       <div className="mb-6">
-        <RevenueChart />
+        <RevenueChart series={chartSeries} />
       </div>
 
       {/* Tenants Table */}

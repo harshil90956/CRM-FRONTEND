@@ -13,6 +13,8 @@ export { publicProjectsService } from './services/public-projects.service';
 export { superAdminUsersService } from './services/super-admin-users.service';
 export { adminReportsService } from './services/admin-reports.service';
 export { managerDashboardService } from './services/manager-dashboard.service';
+export { platformSettingsService } from './services/platform-settings.service';
+export { superAdminBookingsService } from './services/super-admin-bookings.service';
 
 export type { LeadDb, CreateLeadInput } from './services/leads.service';
 export type { PaymentDb, UpdatePaymentInput } from './services/payments.service';

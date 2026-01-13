@@ -16,6 +16,13 @@ import { unitsService, type ManagerUnit, type UnitStatus, type UnitType } from "
 
 export const ManagerUnitsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
+  const { currentUser } = useAppStore();
+
+  const canWriteUnits = currentUser?.role === "ADMIN" || currentUser?.role === "SUPER_ADMIN";
+
+  const [units, setUnits] = useState<UnitDb[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [statusFilter, setStatusFilter] = useState<'all' | UnitStatus>('all');

@@ -34,7 +34,6 @@ const initialUnit = {
   project: "",
   towerName: "",
   floorNumber: 0,
-  area: "",
   price: "",
   status: "AVAILABLE",
   // Residential fields
@@ -43,9 +42,7 @@ const initialUnit = {
   // Commercial fields
   carpetArea: "",
   builtUpArea: "",
-  // Industrial fields
-  plotSize: "",
-  covered: false,
+  totalArea: "",
 };
 
 const parseNumber = (value: string): number => {
@@ -86,17 +83,13 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
   useEffect(() => {
     if (!open) return;
     if (mode === "edit" && initialUnitProp) {
-      const areaFromUnit =
-        initialUnitProp.mainType === "Industrial"
-          ? initialUnitProp.totalArea
-          : initialUnitProp.carpetArea;
-
       setUnit({
         ...initialUnit,
         ...initialUnitProp,
         price: typeof initialUnitProp.price === "number" ? String(initialUnitProp.price) : (initialUnitProp.price ?? ""),
-        area: areaFromUnit ? String(areaFromUnit) : (initialUnitProp.area ?? ""),
-        builtUpArea: initialUnitProp.builtUpArea ? String(initialUnitProp.builtUpArea) : (initialUnitProp.builtUpArea ?? ""),
+        carpetArea: initialUnitProp.carpetArea !== undefined && initialUnitProp.carpetArea !== null ? String(initialUnitProp.carpetArea) : "",
+        builtUpArea: initialUnitProp.builtUpArea !== undefined && initialUnitProp.builtUpArea !== null ? String(initialUnitProp.builtUpArea) : "",
+        totalArea: initialUnitProp.totalArea !== undefined && initialUnitProp.totalArea !== null ? String(initialUnitProp.totalArea) : "",
       });
       return;
     }
@@ -104,7 +97,7 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
   }, [open, mode, initialUnitProp]);
 
   const selectedProject = projects.find((p) => p.name === unit.project);
-  const projectType = selectedProject?.mainType || "Residential";
+  const projectType = selectedProject?.mainType || initialUnitProp?.mainType || "Residential";
 
   const handleSubmit = async () => {
     if (!unit.unitNo || !unit.project) {
@@ -119,8 +112,11 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
 
     setIsLoading(true);
     try {
-      const parsedArea = parseNumber(unit.area);
       const parsedPrice = parseNumber(unit.price);
+
+      const carpetArea = parseNumber((unit as any).carpetArea);
+      const builtUpArea = parseNumber((unit as any).builtUpArea);
+      const totalArea = parseNumber((unit as any).totalArea);
 
       const unitData: any = {
         unitNo: unit.unitNo,
@@ -132,21 +128,32 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
       };
 
       if (projectType === "Residential") {
+        if (carpetArea <= 0 && builtUpArea <= 0 && totalArea <= 0) {
+          toast.error("Please enter area");
+          return;
+        }
         unitData.bedrooms = unit.bedrooms;
         unitData.bathrooms = unit.bathrooms;
-        unitData.carpetArea = parsedArea;
-        unitData.builtUpArea = parseNumber(unit.builtUpArea) || parsedArea;
+        unitData.carpetArea = carpetArea || builtUpArea || totalArea;
+        unitData.builtUpArea = builtUpArea || carpetArea || totalArea;
+        unitData.totalArea = totalArea || builtUpArea || carpetArea;
         unitData.floorNumber = unit.floorNumber;
         unitData.towerName = unit.towerName;
         unitData.facing = initialUnitProp?.facing || "East";
         unitData.hasBalcony = initialUnitProp?.hasBalcony ?? true;
         unitData.parkingCount = initialUnitProp?.parkingCount ?? 1;
-        unitData.pricePerSqft = parsedArea > 0 ? Math.round(parsedPrice / parsedArea) : 0;
+        const divisor = unitData.carpetArea || unitData.builtUpArea || unitData.totalArea || 0;
+        unitData.pricePerSqft = divisor > 0 ? Math.round(parsedPrice / divisor) : 0;
       }
 
       if (projectType === "Commercial") {
-        unitData.carpetArea = parsedArea;
-        unitData.builtUpArea = parseNumber(unit.builtUpArea) || parsedArea;
+        if (carpetArea <= 0 && builtUpArea <= 0) {
+          toast.error("Please enter area");
+          return;
+        }
+        unitData.carpetArea = carpetArea || builtUpArea;
+        unitData.builtUpArea = builtUpArea || carpetArea;
+        unitData.totalArea = totalArea || unitData.builtUpArea || unitData.carpetArea;
         unitData.frontage = initialUnitProp?.frontage ?? 0;
         unitData.floorNumber = unit.floorNumber;
         unitData.suitableFor = (initialUnitProp?.suitableFor || "Office") as any;
@@ -156,7 +163,12 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
       }
 
       if (projectType === "Industrial") {
-        unitData.totalArea = parsedArea;
+        const effectiveTotalArea = totalArea || builtUpArea || carpetArea;
+        if (effectiveTotalArea <= 0) {
+          toast.error("Please enter total area");
+          return;
+        }
+        unitData.totalArea = effectiveTotalArea;
         unitData.clearHeight = initialUnitProp?.clearHeight ?? 0;
         unitData.facilityType = (initialUnitProp?.facilityType || "Warehouse") as any;
         unitData.powerLoad = initialUnitProp?.powerLoad ?? 0;
@@ -255,7 +267,10 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
               <div className="space-y-2">
                 <Label htmlFor="bedrooms">Bedrooms</Label>
                 <Select
-                  value={unit.bedrooms.toString()}
+                  value={(() => {
+                    const v = Number((unit as any).bedrooms);
+                    return Number.isFinite(v) && v > 0 ? String(v) : "";
+                  })()}
                   onValueChange={(v) => setUnit({ ...unit, bedrooms: parseInt(v) })}
                 >
                   <SelectTrigger>
@@ -273,7 +288,10 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
               <div className="space-y-2">
                 <Label htmlFor="bathrooms">Bathrooms</Label>
                 <Select
-                  value={unit.bathrooms.toString()}
+                  value={(() => {
+                    const v = Number((unit as any).bathrooms);
+                    return Number.isFinite(v) && v > 0 ? String(v) : "";
+                  })()}
                   onValueChange={(v) => setUnit({ ...unit, bathrooms: parseInt(v) })}
                 >
                   <SelectTrigger>
@@ -299,7 +317,7 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
                 <Input
                   id="carpetArea"
                   placeholder="e.g., 1200"
-                  value={unit.carpetArea}
+                  value={(unit as any).carpetArea}
                   onChange={(e) => setUnit({ ...unit, carpetArea: e.target.value })}
                 />
               </div>
@@ -308,7 +326,7 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
                 <Input
                   id="builtUpArea"
                   placeholder="e.g., 1500"
-                  value={unit.builtUpArea}
+                  value={(unit as any).builtUpArea}
                   onChange={(e) => setUnit({ ...unit, builtUpArea: e.target.value })}
                 />
               </div>
@@ -317,53 +335,60 @@ export const UnitForm = ({ open, onOpenChange, onSuccess, mode = "create", initi
 
           {/* Industrial Fields */}
           {projectType === "Industrial" && (
+            <div className="space-y-2">
+              <Label htmlFor="totalArea">Total Area (sq.ft)</Label>
+              <Input
+                id="totalArea"
+                placeholder="e.g., 5000"
+                value={(unit as any).totalArea}
+                onChange={(e) => setUnit({ ...unit, totalArea: e.target.value })}
+              />
+            </div>
+          )}
+
+          {projectType === "Residential" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="plotSize">Plot Size (sq.ft)</Label>
+                <Label htmlFor="carpetArea">Carpet Area (sq.ft)</Label>
                 <Input
-                  id="plotSize"
-                  placeholder="e.g., 5000"
-                  value={unit.plotSize}
-                  onChange={(e) => setUnit({ ...unit, plotSize: e.target.value })}
+                  id="carpetArea"
+                  placeholder="e.g., 1050"
+                  value={(unit as any).carpetArea}
+                  onChange={(e) => setUnit({ ...unit, carpetArea: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <Label>Covered</Label>
-                <Select
-                  value={unit.covered ? "yes" : "no"}
-                  onValueChange={(v) => setUnit({ ...unit, covered: v === "yes" })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="yes">Yes</SelectItem>
-                    <SelectItem value="no">No</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="builtUpArea">Built-up Area (sq.ft)</Label>
+                <Input
+                  id="builtUpArea"
+                  placeholder="e.g., 1250"
+                  value={(unit as any).builtUpArea}
+                  onChange={(e) => setUnit({ ...unit, builtUpArea: e.target.value })}
+                />
               </div>
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {projectType !== "Industrial" && (
             <div className="space-y-2">
-              <Label htmlFor="area">Total Area</Label>
+              <Label htmlFor="totalArea">Total Area (sq.ft)</Label>
               <Input
-                id="area"
-                placeholder="e.g., 1250 sq.ft"
-                value={unit.area}
-                onChange={(e) => setUnit({ ...unit, area: e.target.value })}
+                id="totalArea"
+                placeholder="e.g., 1400"
+                value={(unit as any).totalArea}
+                onChange={(e) => setUnit({ ...unit, totalArea: e.target.value })}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="price">Price</Label>
-              <Input
-                id="price"
-                placeholder="e.g., ₹85L"
-                value={unit.price}
-                onChange={(e) => setUnit({ ...unit, price: e.target.value })}
-              />
-            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="price">Price</Label>
+            <Input
+              id="price"
+              placeholder="e.g., ₹85L"
+              value={unit.price}
+              onChange={(e) => setUnit({ ...unit, price: e.target.value })}
+            />
           </div>
 
           <div className="space-y-2">
