@@ -49,9 +49,10 @@ const getStatusStyle = (status: string) => {
 interface LeadsTableProps {
   limit?: number;
   showActions?: boolean;
+  leads?: LeadDb[];
 }
 
-export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
+export const LeadsTable = ({ limit, showActions = true, leads }: LeadsTableProps) => {
   const { toast } = useToast();
   const { currentUser } = useAppStore();
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
@@ -68,10 +69,14 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
   });
   
   // State management for leads - this is the single source of truth
-  const [leadsData, setLeadsData] = useState<LeadDb[]>([]);
+  const [leadsData, setLeadsData] = useState<LeadDb[]>(() => leads ?? []);
   const displayLeads = limit ? leadsData.slice(0, limit) : leadsData;
 
   useEffect(() => {
+    if (leads) {
+      setLeadsData(leads);
+      return;
+    }
     void (async () => {
       try {
         const role = String(currentUser?.role || '').toUpperCase();
@@ -95,7 +100,7 @@ export const LeadsTable = ({ limit, showActions = true }: LeadsTableProps) => {
         });
       }
     })();
-  }, [toast, currentUser?.role]);
+  }, [toast, currentUser?.role, leads]);
 
   // Handler functions
   const handleViewDetails = (lead: any) => {

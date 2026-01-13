@@ -12,10 +12,11 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { leadsService } from "@/api";
 import { useAppStore } from "@/stores/appStore";
+import type { LeadDb } from "@/api/services/leads.service";
 
 type FunnelRow = { stage: string; count: number; color: string };
 
-export const LeadFunnelChart = () => {
+export const LeadFunnelChart = (props: { leads?: LeadDb[] }) => {
   const [rows, setRows] = useState<FunnelRow[]>([]);
   const { currentUser } = useAppStore();
 
@@ -30,6 +31,29 @@ export const LeadFunnelChart = () => {
   );
 
   useEffect(() => {
+    const compute = (leads: LeadDb[]) => {
+      const next = baseRows.map((r) => ({ ...r }));
+      const add = (stage: FunnelRow['stage']) => {
+        const row = next.find((x) => x.stage === stage);
+        if (row) row.count += 1;
+      };
+
+      for (const l of leads) {
+        const s = String((l as any).status);
+        if (s === 'NEW') add('New Leads');
+        else if (s === 'CONTACTED') add('Contacted');
+        else if (s === 'QUALIFIED') add('Qualified');
+        else if (s === 'CONVERTED') add('Won');
+      }
+
+      setRows(next);
+    };
+
+    if (props.leads) {
+      compute(props.leads);
+      return;
+    }
+
     void (async () => {
       try {
         const role = String(currentUser?.role || '').toUpperCase();
@@ -43,26 +67,12 @@ export const LeadFunnelChart = () => {
                 : await leadsService.list();
         const leads = res.success ? (res.data || []) : [];
 
-        const next = baseRows.map((r) => ({ ...r }));
-        const add = (stage: FunnelRow['stage']) => {
-          const row = next.find((x) => x.stage === stage);
-          if (row) row.count += 1;
-        };
-
-        for (const l of leads) {
-          const s = String(l.status);
-          if (s === 'NEW') add('New Leads');
-          else if (s === 'CONTACTED') add('Contacted');
-          else if (s === 'QUALIFIED') add('Qualified');
-          else if (s === 'CONVERTED') add('Won');
-        }
-
-        setRows(next);
+        compute(leads as any);
       } catch {
         setRows(baseRows);
       }
     })();
-  }, [baseRows, currentUser?.role]);
+  }, [baseRows, currentUser?.role, props.leads]);
 
   return (
     <motion.div
