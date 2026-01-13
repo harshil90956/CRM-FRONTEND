@@ -5,6 +5,13 @@ export type UnitDb = {
   unitNo: string;
   status: string;
   projectId?: string;
+  project?: string;
+  mainType?: string;
+  price?: number;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+  floorNumber?: number | null;
+  towerName?: string | null;
   tenantId?: string;
   createdAt: string;
   updatedAt: string;
