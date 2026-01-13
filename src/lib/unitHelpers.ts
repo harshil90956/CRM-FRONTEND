@@ -31,8 +31,8 @@ export const getUnitMainType = (unit: Unit): string => {
 
 export const getUnitDisplayType = (unit: Unit): string => {
   if (isResidential(unit)) {
-    const bedrooms = (unit as any)?.bedrooms;
-    return Number.isFinite(bedrooms) && Number(bedrooms) > 0 ? `${Number(bedrooms)} BHK` : 'Residential';
+    const b = Number((unit as any)?.bedrooms);
+    return Number.isFinite(b) && b > 0 ? `${b} BHK` : 'Residential';
   }
   if (isCommercial(unit)) {
     return String((unit as any)?.suitableFor || 'Commercial');
@@ -45,21 +45,16 @@ export const getUnitDisplayType = (unit: Unit): string => {
 
 export const getUnitArea = (unit: Unit): string => {
   if (isResidential(unit)) {
-    const carpetArea = (unit as any)?.carpetArea;
-    const builtUpArea = (unit as any)?.builtUpArea;
-    const area = Number.isFinite(carpetArea) && Number(carpetArea) > 0 ? Number(carpetArea) : Number.isFinite(builtUpArea) && Number(builtUpArea) > 0 ? Number(builtUpArea) : null;
-    return area ? `${area} sq.ft` : 'N/A';
+    const a = Number((unit as any)?.carpetArea);
+    return Number.isFinite(a) && a > 0 ? `${a} sq.ft` : 'N/A';
   }
   if (isCommercial(unit)) {
-    const carpetArea = (unit as any)?.carpetArea;
-    const builtUpArea = (unit as any)?.builtUpArea;
-    const area = Number.isFinite(carpetArea) && Number(carpetArea) > 0 ? Number(carpetArea) : Number.isFinite(builtUpArea) && Number(builtUpArea) > 0 ? Number(builtUpArea) : null;
-    return area ? `${area} sq.ft` : 'N/A';
+    const a = Number((unit as any)?.carpetArea);
+    return Number.isFinite(a) && a > 0 ? `${a} sq.ft` : 'N/A';
   }
   if (isIndustrial(unit)) {
-    const totalArea = (unit as any)?.totalArea;
-    const area = Number.isFinite(totalArea) && Number(totalArea) > 0 ? Number(totalArea) : null;
-    return area ? `${area} sq.ft` : 'N/A';
+    const a = Number((unit as any)?.totalArea);
+    return Number.isFinite(a) && a > 0 ? `${a} sq.ft` : 'N/A';
   }
   return 'N/A';
 };
@@ -88,18 +83,13 @@ export const getUnitLocation = (unit: Unit): string => {
   if (projectLocation.trim()) return projectLocation;
 
   if (isResidential(unit)) {
-    const tower = (unit as any)?.towerName;
-    const floor = (unit as any)?.floorNumber;
-    const hasTower = typeof tower === 'string' && tower.trim().length > 0;
-    const hasFloor = Number.isFinite(floor);
-    if (hasTower && hasFloor) return `${tower}, Floor ${Number(floor)}`;
-    if (hasTower) return String(tower);
-    if (hasFloor) return `Floor ${Number(floor)}`;
-    return '-';
+    const tower = String((unit as any)?.towerName || '-');
+    const floor = Number((unit as any)?.floorNumber);
+    return Number.isFinite(floor) && floor > 0 ? `${tower}, Floor ${floor}` : `${tower}`;
   }
   if (isCommercial(unit)) {
-    const floor = (unit as any)?.floorNumber;
-    return Number.isFinite(floor) ? `Floor ${Number(floor)}` : '-';
+    const floor = Number((unit as any)?.floorNumber);
+    return Number.isFinite(floor) && floor > 0 ? `Floor ${floor}` : '-';
   }
   if (isIndustrial(unit)) {
     return String((unit as any)?.roadAccess || '-');

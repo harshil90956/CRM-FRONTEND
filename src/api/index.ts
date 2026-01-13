@@ -9,6 +9,7 @@ export { paymentsService } from './services/payments.service';
 export { reviewsService } from './services/reviews.service';
 export { staffService } from './services/staff.service';
 export { unitsService } from './services/units.service';
+export { publicProjectsService } from './services/public-projects.service';
 export { superAdminUsersService } from './services/super-admin-users.service';
 export { adminReportsService } from './services/admin-reports.service';
 export { managerDashboardService } from './services/manager-dashboard.service';

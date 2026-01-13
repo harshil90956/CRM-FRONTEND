@@ -62,13 +62,17 @@ export const reviewsService = {
   customerCreate: async (input: CustomerCreateReviewInput) => httpClient.post<ReviewDb>('/customer/reviews', input),
   customerUpdate: async (id: string, input: CustomerUpdateReviewInput) => httpClient.patch<ReviewDb>(`/customer/reviews/${id}`, input),
 
-  publicList: async (input: { type: 'project'; targetId: string; tenantId: string; limit?: number; offset?: number }) => {
+  publicList: async (input: { type: 'project' | 'property'; targetId: string; tenantId?: string; limit?: number; offset?: number }) => {
     const limit = Math.max(1, Math.min(50, Number(input.limit) || 10));
     const offset = Math.max(0, Math.floor(Number(input.offset) || 0));
-    return httpClient.get<PublicReviewsPage>(
-      `/public/reviews?type=${encodeURIComponent(input.type)}&targetId=${encodeURIComponent(input.targetId)}&tenantId=${encodeURIComponent(
-        input.tenantId,
-      )}&limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`,
-    );
+
+    const params = new URLSearchParams();
+    params.set('type', String(input.type));
+    params.set('targetId', String(input.targetId));
+    if (input.tenantId) params.set('tenantId', String(input.tenantId));
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
+
+    return httpClient.get<PublicReviewsPage>(`/public/reviews?${params.toString()}`);
   },
 };

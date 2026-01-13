@@ -27,8 +27,10 @@ interface AppState {
   currentUser: CurrentUser | null;
   isAuthenticated: boolean;
   authChecked: boolean;
+  lastTenantId: string | null;
+  setLastTenantId: (id: string | null) => void;
   sendOtp: (email: string) => Promise<void>;
-  login: (email: string, otp: string) => Promise<CurrentUser | null>;
+  login: (email: string, otp: string, tenantId?: string | null) => Promise<CurrentUser | null>;
   logout: () => void;
   updateCurrentUser: (data: Partial<CurrentUser>) => void;
   tenants: Tenant[];
@@ -49,6 +51,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [lastTenantId, setLastTenantIdState] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const raw = localStorage.getItem('crm_lastSuccessfulTenantId_v2');
+    const v = String(raw || '').trim();
+    return v || null;
+  });
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [goals, setGoalsState] = useState({ monthlyTarget: 100, leadsTarget: 200, conversionsTarget: 25 });
   const [dateRange, setDateRange] = useState(30);
@@ -115,6 +123,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [currentUser, isAuthenticated]);
 
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (lastTenantId) {
+      localStorage.setItem('crm_lastSuccessfulTenantId_v2', lastTenantId);
+      localStorage.removeItem('crm_lastTenantId');
+    } else {
+      localStorage.removeItem('crm_lastSuccessfulTenantId_v2');
+    }
+  }, [lastTenantId]);
+
+  const setLastTenantId = useCallback((id: string | null) => {
+    const next = String(id || '').trim();
+    setLastTenantIdState(next || null);
+  }, []);
+
   const sendOtp = useCallback(async (email: string): Promise<void> => {
     setIsLoading(true);
     try {
@@ -127,13 +150,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  const login = useCallback(async (email: string, otp: string): Promise<CurrentUser | null> => {
+  const login = useCallback(async (email: string, otp: string, tenantId?: string | null): Promise<CurrentUser | null> => {
     setIsLoading(true);
     try {
-      const res = await httpClient.rawPost<any>('/auth/verify-otp', {
-        email,
-        otp,
-      });
+      const payload: any = { email, otp };
+      const tid = String(tenantId || '').trim();
+      if (tid) payload.tenantId = tid;
+
+      const res = await httpClient.rawPost<any>('/auth/verify-otp', payload);
 
       const accessToken: string | undefined = res?.accessToken ?? res?.data?.accessToken;
       const user: CurrentUser | undefined = res?.user ?? res?.data?.user;
@@ -195,6 +219,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   return (
     <AppContext.Provider value={{
       currentUser, isAuthenticated, authChecked, sendOtp, login, logout,
+      lastTenantId, setLastTenantId,
       updateCurrentUser,
       tenants, addTenant, updateTenant, goals, setGoals,
       dateRange, setDateRange, leads, addLeads, isLoading,

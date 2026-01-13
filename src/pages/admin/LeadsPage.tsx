@@ -110,7 +110,8 @@ export const LeadsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [leads, setLeads] = useState<(LeadDb & { assignedTo?: string | null; project?: { id: string; name: string } | null })[]>([]);
+  type LeadUi = Omit<LeadDb, 'assignedTo'> & { assignedTo?: string | null };
+  const [leads, setLeads] = useState<LeadUi[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [newLeadStaffId, setNewLeadStaffId] = useState<string>("");
@@ -124,7 +125,7 @@ export const LeadsPage = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pageSize, setPageSize] = useState(20);
-  const [selectedLead, setSelectedLead] = useState<(LeadDb & { assignedTo?: string | null }) | null>(null);
+  const [selectedLead, setSelectedLead] = useState<LeadUi | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
@@ -1049,7 +1050,7 @@ export const LeadsPage = () => {
     }
   };
 
-  const handleEdit = (lead: LeadDb & { assignedTo?: string | null }) => {
+  const handleEdit = (lead: LeadUi) => {
     setSelectedLead(lead);
     setEditLead({
       name: lead.name,
@@ -1123,7 +1124,7 @@ export const LeadsPage = () => {
     }
   };
 
-  const handleDelete = (lead: LeadDb & { assignedTo?: string | null }) => {
+  const handleDelete = (lead: LeadUi) => {
     setSelectedLead(lead);
     setIsDeleteOpen(true);
   };
@@ -1145,19 +1146,17 @@ export const LeadsPage = () => {
     }
   };
 
-  const handleCall = (lead: LeadDb & { assignedTo?: string | null }) => {
-    const phone = String((lead as any)?.phone ?? '').trim();
+  const handleCall = (lead: LeadUi) => {
+    const phone = String((lead as any)?.phone || '').trim();
     if (!phone) {
-      // eslint-disable-next-line no-console
-      console.error('[AdminLeads] Missing phone number for lead', { leadId: (lead as any)?.id, lead });
-      toast.error('Phone number is missing');
+      toast.error('No phone number available for this lead');
       return;
     }
     toast.info(`Calling ${phone}...`);
-    window.open(`tel:${phone}`, '_blank');
+    window.open(`tel:${phone}`, '_self');
   };
 
-  const handleEmail = (lead: LeadDb & { assignedTo?: string | null }) => {
+  const handleEmail = (lead: LeadUi) => {
     toast.info(`Opening email client for ${lead.email}...`);
     window.open(`mailto:${lead.email}`, '_blank');
   };

@@ -28,15 +28,16 @@ import {
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { projects, units } from "@/data/mockData";
 import { getUnitDisplayType, getUnitArea, getUnitLocation, formatPrice } from "@/lib/unitHelpers";
-import { bookingsService } from "@/api";
+import { bookingsService, publicProjectsService } from "@/api";
 import { toast } from "@/hooks/use-toast";
 import { useAppStore } from "@/stores/appStore";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 import { LikeButton } from "@/components/common/LikeButton";
 import { BrochureButton } from "@/components/common/BrochureButton";
+import { useQuery } from "@tanstack/react-query";
+import type { PublicProjectCard } from "@/api/services/public-projects.service";
 
 // Interfaces for state management
 interface Like {
@@ -70,8 +71,75 @@ interface CallbackRequest {
 export const CustomerPortal = () => {
   const { currentUser, login, logout } = useAppStore();
   const customerId = currentUser?.id;
+
   const [accessEnabled, setAccessEnabled] = useState(false);
   const [isAccessLoading, setIsAccessLoading] = useState(false);
+
+  const { data: projectsRes } = useQuery({
+    queryKey: ['publicGlobalProjects'],
+    queryFn: () => publicProjectsService.globalList(),
+    enabled: true,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: 0,
+  });
+
+  const projects = (projectsRes?.success ? (projectsRes.data || []) : []) as PublicProjectCard[];
+
+  const firstWithUnitsId = String(
+    (projects || []).find((p: any) => Number((p as any)?.availableUnitsCount || 0) > 0)?.id ||
+      (projects?.[0] as any)?.id ||
+      '',
+  ).trim();
+  const { data: unitsRes } = useQuery({
+    queryKey: ['publicGlobalUnits', firstWithUnitsId],
+    queryFn: () => publicProjectsService.globalListUnits(firstWithUnitsId),
+    enabled: !!firstWithUnitsId,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: 0,
+  });
+
+  const rawUnits: any[] = (unitsRes as any)?.success ? ((unitsRes as any)?.data || []) : [];
+  const units: any[] = rawUnits.map((u: any) => {
+    const unitNo = String(u?.unitNo || u?.unitNumber || '').trim();
+    const projectName = String(
+      (projects || []).find((p: any) => String(p?.id || '') === String(u?.projectId || ''))?.name ||
+        (projects?.[0] as any)?.name ||
+        '',
+    );
+    const bedrooms = u?.bhk ?? u?.bedrooms;
+    const floorNumber = u?.floorNumber ?? u?.floor;
+    const towerName = u?.towerName ?? u?.tower;
+    const carpetArea = u?.carpetArea ?? u?.sizeSqFt;
+    return {
+      ...u,
+      unitNo,
+      project: projectName,
+      mainType: 'Residential',
+      status: 'AVAILABLE',
+      bedrooms: bedrooms !== undefined && bedrooms !== null ? Number(bedrooms) : 0,
+      floorNumber: floorNumber !== undefined && floorNumber !== null ? Number(floorNumber) : 0,
+      towerName: towerName ? String(towerName) : '-',
+      carpetArea: carpetArea !== undefined && carpetArea !== null ? Number(carpetArea) : 0,
+    };
+  });
+
+  const toUiProject = (p: PublicProjectCard) => {
+    const starting = Number((p as any)?.startingPrice || 0);
+    return {
+      ...p,
+      status: 'Active',
+      amenities: [],
+      totalUnits: Number((p as any)?.availableUnitsCount || 0),
+      availableUnits: Number((p as any)?.availableUnitsCount || 0),
+      bookedUnits: 0,
+      soldUnits: 0,
+      priceRange: starting ? `₹${starting.toLocaleString('en-IN')}` : '',
+    };
+  };
 
   const loadAccess = async () => {
     if (!customerId) {
@@ -112,14 +180,16 @@ export const CustomerPortal = () => {
 
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
-  const [filteredProjects, setFilteredProjects] = useState(projects);
-  const [filteredUnits, setFilteredUnits] = useState(units);
+  const [filteredProjects, setFilteredProjects] = useState<any[]>([]);
+  const [filteredUnits, setFilteredUnits] = useState<any[]>([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedUnit, setSelectedUnit] = useState<any>(null);
   const [isInterestOpen, setIsInterestOpen] = useState(false);
   const [isSignInOpen, setIsSignInOpen] = useState(false);
+  const [isBookingSubmitting, setIsBookingSubmitting] = useState(false);
+
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  
+
   // Sign-in form state
   const [signInForm, setSignInForm] = useState({
     email: '',
@@ -139,7 +209,7 @@ export const CustomerPortal = () => {
     message: ''
   });
   const [selectedProject, setSelectedProject] = useState<any>(null);
-  
+
   // Filter states
   const [filterType, setFilterType] = useState("all");
   const [filterBedrooms, setFilterBedrooms] = useState("all");
@@ -213,13 +283,33 @@ export const CustomerPortal = () => {
     setUnitsPage(1);
   }, [searchQuery, filterType, filterBedrooms, filterPriceRange, filterProject, setUnitsPage]);
 
+  useEffect(() => {
+    setFilteredProjects(projects.map(toUiProject));
+  }, [projectsRes?.success, projects.length]);
+
+  useEffect(() => {
+    setFilteredUnits(units);
+  }, [unitsRes, units.length]);
+
   const handleSearch = (query: string) => {
     setSearchQuery(query);
     applyFilters(query, filterType, filterBedrooms, filterPriceRange, filterProject);
   };
 
   const applyFilters = (search: string, type: string, bedrooms: string, priceRange: string, project: string) => {
-    let filtered = units.filter(u => u.status === "AVAILABLE");
+    const q = String(search || '').trim().toLowerCase();
+
+    // Projects filter (real data)
+    const nextProjects = (projects || [])
+      .map(toUiProject)
+      .filter((p: any) => {
+        if (!q) return true;
+        return String(p?.name || '').toLowerCase().includes(q) || String(p?.location || '').toLowerCase().includes(q);
+      });
+    setFilteredProjects(nextProjects);
+
+    // Units are not loaded on this page yet (no mock data; no /units call). Keep empty.
+    let filtered = units.filter((u) => u.status === "AVAILABLE");
     
     // Apply search
     if (search.trim() !== "") {
@@ -273,19 +363,20 @@ export const CustomerPortal = () => {
   };
 
   const handleViewProjectDetails = (project: any) => {
-    // Navigate to a separate project details page
-    // For now, we'll navigate to projects page with project ID
+    if (!project?.id) {
+      navigate('/customer/projects');
+      return;
+    }
     navigate(`/customer/projects?project=${project.id}`);
+  };
+
+  const handleViewUnitDetails = (unit: any) => {
+    navigate(`/customer/properties?unit=${unit.id}`);
   };
 
   const handleScheduleVisit = (project: any) => {
     // Open contact form or navigate to contact page with project info
     navigate(`/customer/contact?project=${project.id}&action=schedule-visit`);
-  };
-
-  const handleViewUnitDetails = (unit: any) => {
-    // Navigate to properties page with unit details
-    navigate(`/customer/properties?unit=${unit.id}`);
   };
 
   const handleExpressInterest = (unit: any) => {
@@ -296,17 +387,7 @@ export const CustomerPortal = () => {
       setIsSignInOpen(true);
       return;
     }
-    
-    // Check if access is enabled (for signed-in users)
-    if (!accessEnabled) {
-      toast({
-        title: "Access Locked",
-        description: "Your access will be enabled after admin approves your payment.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
+
     setSelectedUnit(unit);
     setIsInterestOpen(true);
   };
@@ -323,21 +404,18 @@ export const CustomerPortal = () => {
 
     setSelectedProject(project);
     setSelectedUnit(unit);
-    
+
     // Pre-fill form with user data if available
     if (currentUser) {
-      const phone =
-        typeof (currentUser as any)?.phone === 'string'
-          ? String((currentUser as any).phone)
-          : '';
+      const phone = typeof (currentUser as any)?.phone === 'string' ? String((currentUser as any).phone) : '';
       setCallbackForm({
         name: currentUser.name || '',
         phone,
         email: currentUser.email || '',
-        message: ''
+        message: '',
       });
     }
-    
+
     setIsCallbackOpen(true);
   };
 
@@ -440,15 +518,13 @@ export const CustomerPortal = () => {
         // Close sign-in dialog
         setIsSignInOpen(false);
         setSignInForm({ email: '', password: '' });
-        
+
         // Execute pending action if any
         if (pendingAction && selectedUnit) {
           if (pendingAction === 'interest') {
-            // Retry interest action
             setTimeout(() => handleExpressInterest(selectedUnit), 100);
           } else if (pendingAction === 'callback') {
-            // Retry callback action
-            setTimeout(() => handleRequestCallback(selectedUnit), 100);
+            setTimeout(() => handleRequestCallback(undefined, selectedUnit), 100);
           }
           setPendingAction(null);
         }
@@ -580,7 +656,6 @@ the most up-to-date information.
         title: "Brochure Downloaded",
         description: `${project.name} brochure has been downloaded successfully.`,
       });
-
     } catch (error) {
       toast({
         title: "Download Failed",
@@ -589,6 +664,102 @@ the most up-to-date information.
       });
     } finally {
       setIsDownloading(null);
+    }
+  };
+
+  const submitInterestAndCreateBooking = async () => {
+    if (!customerId || !currentUser) {
+      setPendingAction('interest');
+      setIsInterestOpen(false);
+      setIsSignInOpen(true);
+      return;
+    }
+
+    if (!selectedUnit) return;
+
+    const tenantId = String((selectedUnit as any)?.tenantId || '').trim();
+    const projectId = String((selectedUnit as any)?.projectId || '').trim();
+    const unitId = String((selectedUnit as any)?.id || '').trim();
+    const totalPrice = Number((selectedUnit as any)?.price || 0);
+
+    const customerName = String(currentUser?.name || '').trim();
+    const customerEmail = String(currentUser?.email || '').trim();
+    const customerPhoneFromUser = String((currentUser as any)?.phone || '').trim();
+    const customerPhoneFromStorage = typeof window === 'undefined' ? '' : String(sessionStorage.getItem('crm_customerPhone') || '').trim();
+    const customerPhone = customerPhoneFromUser || customerPhoneFromStorage;
+
+    if (!tenantId || !projectId || !unitId) {
+      toast({
+        title: 'Unable to book',
+        description: 'Missing unit details. Please refresh and try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!Number.isFinite(totalPrice) || totalPrice <= 0) {
+      toast({
+        title: 'Invalid unit price',
+        description: 'This unit has no valid price. Please contact support.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!customerName || !customerEmail || !customerPhone) {
+      toast({
+        title: 'Phone required',
+        description: 'Please provide phone number to create booking (you can book from Properties page to enter phone).',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsBookingSubmitting(true);
+    try {
+      const tokenAmount = Math.max(1, Math.round(totalPrice * 0.1));
+      const holdExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+      const res = await bookingsService.hold({
+        status: 'HOLD_REQUESTED',
+        unitId,
+        customerId: String(customerId),
+        projectId,
+        tenantId,
+        totalPrice,
+        tokenAmount,
+        holdExpiresAt,
+        customerName,
+        customerEmail,
+        customerPhone,
+        notes: 'Customer interest submitted from portal',
+      } as any);
+
+      if (!(res as any)?.success) {
+        toast({
+          title: 'Booking failed',
+          description: String((res as any)?.message || 'Unable to create booking'),
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      toast({
+        title: 'Booking created',
+        description: 'Your booking request has been created successfully.',
+      });
+
+      setIsInterestOpen(false);
+      setSelectedUnit(null);
+      navigate('/customer/bookings');
+    } catch (e: any) {
+      toast({
+        title: 'Booking failed',
+        description: String(e?.message || 'Unable to create booking'),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsBookingSubmitting(false);
     }
   };
 
@@ -638,8 +809,8 @@ the most up-to-date information.
   const likedProjectIds = projectLikes.filter((like: string) => like.startsWith(`${currentUser?.id}_`)).map((like: string) => like.split('_')[1]);
   const likedUnitIds = unitLikes.filter((like: string) => like.startsWith(`${currentUser?.id}_`)).map((like: string) => like.split('_')[1]);
   
-  const likedProjects = projects.filter(p => likedProjectIds.includes(p.id));
-  const likedUnits = units.filter(u => likedUnitIds.includes(u.id));
+  const likedProjects = projects.filter((p) => likedProjectIds.includes(String((p as any).id)));
+  const likedUnits = units.filter((u) => likedUnitIds.includes(String((u as any).id)));
   
   toast({
     title: "Liked Items",
@@ -865,20 +1036,11 @@ the most up-to-date information.
                 >
                   <Card className="p-3 hover:shadow-md transition-shadow cursor-pointer">
                     <div className="flex items-start justify-between mb-2">
-                      <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-xs">
-                        Available
-                      </Badge>
-                      <LikeButton 
-                        targetId={unit.id}
-                        targetType="unit"
-                        showCount={false}
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0"
-                      />
+                      <div>
+                        <h4 className="font-semibold text-foreground text-sm">{unit.unitNo}</h4>
+                        <p className="text-xs text-muted-foreground mb-2">{unit.project}</p>
+                      </div>
                     </div>
-                    <h4 className="font-semibold text-foreground text-sm">{unit.unitNo}</h4>
-                    <p className="text-xs text-muted-foreground mb-2">{unit.project}</p>
                     <div className="space-y-1 text-sm mb-3">
                       <div className="flex items-center gap-2">
                         <Home className="w-3 h-3 text-muted-foreground" />
@@ -1060,7 +1222,7 @@ the most up-to-date information.
             </div>
           </div>
           <div className="mt-8 pt-8 border-t border-sidebar-border text-center text-sm text-sidebar-foreground/60">
-            © 2024 RealCRM. All rights reserved.
+            &copy; 2024 RealCRM. All rights reserved.
           </div>
         </div>
       </footer>
@@ -1231,13 +1393,13 @@ the most up-to-date information.
                 {/* Quick Actions */}
                 <div className="flex flex-wrap gap-2 pt-2">
                   <Badge variant="outline" className="text-xs px-2 py-1">
-                    📞 Schedule Visit
+                    &phone; Schedule Visit
                   </Badge>
                   <Badge variant="outline" className="text-xs px-2 py-1">
-                    📄 Download Brochure
+                    &darr; Download Brochure
                   </Badge>
                   <Badge variant="outline" className="text-xs px-2 py-1">
-                    💰 EMI Calculator
+                    &dollar; EMI Calculator
                   </Badge>
                 </div>
               </div>
@@ -1247,14 +1409,9 @@ the most up-to-date information.
             <Button variant="outline" onClick={() => setIsInterestOpen(false)} className="flex-1">
               Cancel
             </Button>
-            <Button onClick={() => {
-              // Simulate form submission
-              setIsInterestOpen(false);
-              setSelectedUnit(null);
-              // Here you would normally submit to backend
-            }} className="flex-1">
+            <Button onClick={submitInterestAndCreateBooking} className="flex-1" disabled={isBookingSubmitting}>
               <Heart className="w-4 h-4 mr-2" />
-              Submit Interest
+              {isBookingSubmitting ? 'Booking...' : 'Book Now'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1269,12 +1426,16 @@ the most up-to-date information.
               Please sign in to {pendingAction === 'interest' ? 'express interest in this property' : 'request a callback'}.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-5 py-2">
             {selectedUnit && (
-              <div className="bg-muted/50 p-3 rounded-lg">
-                <p className="text-sm font-medium">{selectedUnit.unitNo}</p>
-                <p className="text-xs text-muted-foreground">{selectedUnit.project}</p>
-                <p className="text-sm font-semibold text-primary mt-1">{formatPrice(selectedUnit.price)}</p>
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate">{String(selectedUnit.unitNo || '')}</p>
+                    <p className="text-xs text-muted-foreground truncate">{String(selectedUnit.project || '')}</p>
+                  </div>
+                  <p className="text-sm font-semibold text-primary whitespace-nowrap">{formatPrice(Number(selectedUnit.price || 0))}</p>
+                </div>
               </div>
             )}
             
@@ -1307,7 +1468,7 @@ the most up-to-date information.
               </div>
             </div>
           </div>
-          <DialogFooter className="gap-3">
+          <DialogFooter className="gap-3 sm:gap-2">
             <Button variant="outline" onClick={() => {
               setIsSignInOpen(false);
               setPendingAction(null);

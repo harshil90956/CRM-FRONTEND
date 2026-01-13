@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import type { LeadDb } from "@/api/services/leads.service";
 
 interface LeadDetailModalProps {
-  lead: (LeadDb & { assignedTo?: string | null }) | null;
+  lead: (Omit<LeadDb, 'assignedTo'> & { assignedTo?: string | null }) | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
