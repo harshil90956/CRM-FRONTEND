@@ -17,7 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { getUnitDisplayType, getUnitArea, getUnitLocation, formatPrice, getStatusStyle, getStatusLabel } from "@/lib/unitHelpers";
+import { getUnitMainType, getUnitArea, getUnitLocation, formatPrice, getStatusStyle, getStatusLabel } from "@/lib/unitHelpers";
 
 interface UnitsTableProps {
   limit?: number;
@@ -62,7 +62,7 @@ export const UnitsTable = ({ limit, data = [], onView, onEdit, onDelete }: Units
               <TableCell className="font-medium text-foreground">{unit.unitNo}</TableCell>
               <TableCell className="text-muted-foreground">{unit.project}</TableCell>
               <TableCell className="text-muted-foreground">{getUnitLocation(unit)}</TableCell>
-              <TableCell className="text-muted-foreground">{getUnitDisplayType(unit)}</TableCell>
+              <TableCell className="text-muted-foreground">{getUnitMainType(unit)}</TableCell>
               <TableCell className="text-muted-foreground">{getUnitArea(unit)}</TableCell>
               <TableCell className="font-medium text-foreground">{formatPrice(unit.price)}</TableCell>
               <TableCell>

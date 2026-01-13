@@ -4,10 +4,11 @@ import { motion } from "framer-motion";
 import { 
   Download, 
   DollarSign, 
-  Package, 
-  AlertTriangle, 
-  Clock,
-  TrendingDown
+  Building, 
+  Home, 
+  Users,
+  TrendingUp,
+  MapPin
 } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Card } from "@/components/ui/card";
@@ -72,8 +73,9 @@ const ReportKPICard = ({ title, value, subtitle, icon, iconColor, valueColor }: 
 // (Data for this page is fetched from backend via /admin/reports/overview)
 
 export const ReportsPage = () => {
+  console.log('ReportsPage component mounted');
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
-  const [activeTab, setActiveTab] = useState("stock");
+  const [activeTab, setActiveTab] = useState("units");
   const [isLoading, setIsLoading] = useState(false);
   const [overview, setOverview] = useState<ReportsOverview | null>(null);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
@@ -95,9 +97,12 @@ export const ReportsPage = () => {
   const loadOverview = async (opts?: { from?: string; to?: string; projectId?: string }) => {
     setIsLoading(true);
     try {
+      console.log('Loading reports overview with opts:', opts);
       const res = await adminReportsService.overview(opts);
+      console.log('Reports overview response:', res);
       setOverview(res.data || null);
     } catch (e) {
+      console.error('Failed to load reports overview:', e);
       setOverview(null);
       toast.error(e instanceof Error ? e.message : 'Failed to load reports');
     } finally {
@@ -123,7 +128,7 @@ export const ReportsPage = () => {
     return rows.map((r) => ({
       icon: iconFor(r.mainType),
       category: String(r.mainType),
-      items: Number(r.units || 0),
+      units: Number(r.units || 0),
       quantity: Number(r.units || 0),
       value: Number(r.value || 0),
     }));
@@ -181,38 +186,38 @@ export const ReportsPage = () => {
     }));
   }, [overview]);
 
-  const { page: stockPage, setPage: setStockPage, totalPages: stockTotalPages, pageItems: paginatedCategoryData } = useClientPagination(categoryData, { pageSize: 10 });
+  const { page: unitsPage, setPage: setUnitsPage, totalPages: unitsTotalPages, pageItems: paginatedCategoryData } = useClientPagination(categoryData, { pageSize: 10 });
   const { page: salesPage, setPage: setSalesPage, totalPages: salesTotalPages, pageItems: paginatedSalesData } = useClientPagination(salesData, { pageSize: 10 });
-  const { page: purchasePage, setPage: setPurchasePage, totalPages: purchaseTotalPages, pageItems: paginatedPurchaseData } = useClientPagination(purchaseData, { pageSize: 10 });
+  const { page: leadsPage, setPage: setLeadsPage, totalPages: leadsTotalPages, pageItems: paginatedPurchaseData } = useClientPagination(purchaseData, { pageSize: 10 });
   const { page: financialPage, setPage: setFinancialPage, totalPages: financialTotalPages, pageItems: paginatedFinancialData } = useClientPagination(financialData, { pageSize: 10 });
   const { page: staffPage, setPage: setStaffPage, totalPages: staffTotalPages, pageItems: paginatedStaffData } = useClientPagination(staffData, { pageSize: 10 });
 
   useEffect(() => {
-    setStockPage(1);
+    setUnitsPage(1);
     setSalesPage(1);
-    setPurchasePage(1);
+    setLeadsPage(1);
     setFinancialPage(1);
     setStaffPage(1);
-  }, [activeTab, setStockPage, setSalesPage, setPurchasePage, setFinancialPage, setStaffPage]);
+  }, [activeTab, setUnitsPage, setSalesPage, setLeadsPage, setFinancialPage, setStaffPage]);
 
-  const totalStockValue = overview?.kpis?.units?.inventoryValue ?? categoryData.reduce((sum, c) => sum + c.value, 0);
-  const totalItems = overview?.kpis?.units?.total ?? categoryData.reduce((sum, c) => sum + c.items, 0);
+  const totalInventoryValue = overview?.kpis?.units?.inventoryValue ?? categoryData.reduce((sum, c) => sum + c.value, 0);
+  const totalUnits = overview?.kpis?.units?.total ?? categoryData.reduce((sum, c) => sum + c.units, 0);
   const totalQuantity = overview?.kpis?.units?.total ?? categoryData.reduce((sum, c) => sum + c.quantity, 0);
 
   const handleExportReport = () => {
-    if (activeTab === "stock") {
-      const headers = ["Category", "Items", "Total Quantity", "Stock Value"];
-      const rows = categoryData.map(c => [c.category, c.items, c.quantity, c.value]);
-      rows.push(["Total", totalItems, totalQuantity, totalStockValue]);
-      downloadCsv("stock-report", headers, rows);
+    if (activeTab === "units") {
+      const headers = ["Property Type", "Units", "Total Quantity", "Inventory Value"];
+      const rows = categoryData.map(c => [c.category, c.units, c.quantity, c.value]);
+      rows.push(["Total", totalUnits, totalQuantity, totalInventoryValue]);
+      downloadCsv("units-report", headers, rows);
     } else if (activeTab === "sales") {
       const headers = ["Project", "Leads", "Revenue"];
       const rows = salesData.map((s: any) => [s.project, s.leads ?? 0, s.revenue]);
       downloadCsv("sales-report", headers, rows);
-    } else if (activeTab === "purchase") {
+    } else if (activeTab === "leads") {
       const headers = ["Lead Source", "Leads"];
       const rows = purchaseData.map(p => [p.vendor, p.quantity]);
-      downloadCsv("purchase-report", headers, rows);
+      downloadCsv("leads-report", headers, rows);
     } else if (activeTab === "financial") {
       const headers = ["Month", "Collected"];
       const rows = financialData.map(f => [f.month, f.income]);
@@ -279,7 +284,30 @@ export const ReportsPage = () => {
       description="Comprehensive reports across all business modules"
       sidebarCollapsed={sidebarCollapsed}
     >
-      <Card className="p-4 mb-6">
+      {/* Simple loading state */}
+      {isLoading && !overview && (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading reports...</p>
+          </div>
+        </div>
+      )}
+      
+      {/* Error state */}
+      {!isLoading && !overview && (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <p className="text-muted-foreground mb-4">No reports data available.</p>
+            <Button onClick={() => void loadOverview()}>Try Again</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Main content - only render when we have data or are loading with existing data */}
+      {overview && (
+        <>
+          <Card className="p-4 mb-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full">
             <div>
@@ -352,10 +380,10 @@ export const ReportsPage = () => {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
         <TabsList className="bg-transparent border-b border-border rounded-none w-full justify-start h-auto p-0 gap-0 flex flex-wrap">
           <TabsTrigger 
-            value="stock" 
+            value="units" 
             className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-2.5"
           >
-            Inventory Reports
+            Property Reports
           </TabsTrigger>
           <TabsTrigger 
             value="sales"
@@ -364,10 +392,10 @@ export const ReportsPage = () => {
             Sales Reports
           </TabsTrigger>
           <TabsTrigger 
-            value="purchase"
+            value="leads"
             className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-2.5"
           >
-            Lead Source Reports
+            Lead Reports
           </TabsTrigger>
           <TabsTrigger 
             value="financial"
@@ -383,8 +411,8 @@ export const ReportsPage = () => {
           </TabsTrigger>
         </TabsList>
 
-        {/* Stock Reports Tab */}
-        <TabsContent value="stock" className="mt-6">
+        {/* Property Reports Tab */}
+        <TabsContent value="units" className="mt-6">
           {isLoading ? (
             <div className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -403,32 +431,32 @@ export const ReportsPage = () => {
               {/* KPI Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <ReportKPICard 
-                  title="Total Stock Value" 
-                  value={formatCurrency(totalStockValue)}
+                  title="Total Inventory Value" 
+                  value={formatCurrency(totalInventoryValue)}
                   icon={<DollarSign className="w-5 h-5" />}
                 />
                 <ReportKPICard 
-                  title="Total Items" 
-                  value={totalItems}
-                  icon={<Package className="w-5 h-5" />}
+                  title="Total Units" 
+                  value={totalUnits}
+                  icon={<Building className="w-5 h-5" />}
                 />
                 <ReportKPICard 
                   title="Available Units" 
                   value={Number(k?.units?.available || 0)}
                   valueColor="text-green-600"
-                  icon={<TrendingDown className="w-5 h-5 text-green-600" />}
+                  icon={<Home className="w-5 h-5 text-green-600" />}
                 />
                 <ReportKPICard 
                   title="Sold Units" 
                   value={Number(k?.units?.sold || 0)}
-                  icon={<AlertTriangle className="w-5 h-5" />}
+                  icon={<TrendingUp className="w-5 h-5" />}
                 />
               </div>
 
               {/* Category Table */}
               <Card className="p-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-                  <h3 className="text-lg font-semibold">Category-wise Stock Valuation</h3>
+                  <h3 className="text-lg font-semibold">Property Type Valuation</h3>
                   <Button onClick={handleExportReport} className="w-full sm:w-auto bg-green-600 hover:bg-green-700">
                     <Download className="w-4 h-4 mr-2" />
                     Export Report
@@ -437,10 +465,10 @@ export const ReportsPage = () => {
                 <Table className="min-w-[900px]">
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
-                      <TableHead className="text-muted-foreground font-medium">Category</TableHead>
-                      <TableHead className="text-muted-foreground font-medium">Items</TableHead>
+                      <TableHead className="text-muted-foreground font-medium">Property Type</TableHead>
+                      <TableHead className="text-muted-foreground font-medium">Units</TableHead>
                       <TableHead className="text-muted-foreground font-medium">Total Quantity</TableHead>
-                      <TableHead className="text-right text-muted-foreground font-medium">Stock Value</TableHead>
+                      <TableHead className="text-right text-muted-foreground font-medium">Inventory Value</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -452,7 +480,7 @@ export const ReportsPage = () => {
                             <span className="font-medium">{category.category}</span>
                           </div>
                         </TableCell>
-                        <TableCell>{category.items}</TableCell>
+                        <TableCell>{category.units}</TableCell>
                         <TableCell>{category.quantity.toLocaleString()}</TableCell>
                         <TableCell className="text-right">{formatCurrency(category.value)}</TableCell>
                       </TableRow>
@@ -460,13 +488,13 @@ export const ReportsPage = () => {
                     {/* Total Row */}
                     <TableRow className="bg-muted/30 font-semibold hover:bg-muted/30">
                       <TableCell>Total</TableCell>
-                      <TableCell>{totalItems}</TableCell>
+                      <TableCell>{totalUnits}</TableCell>
                       <TableCell>{totalQuantity.toLocaleString()}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(totalStockValue)}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(totalInventoryValue)}</TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
-                <PaginationBar page={stockPage} totalPages={stockTotalPages} onPageChange={setStockPage} className="px-0" />
+                <PaginationBar page={unitsPage} totalPages={unitsTotalPages} onPageChange={setUnitsPage} className="px-0" />
               </Card>
             </motion.div>
           )}
@@ -487,7 +515,7 @@ export const ReportsPage = () => {
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <ReportKPICard title="Revenue Collected" value={formatCr(totalRevenue)} icon={<DollarSign className="w-5 h-5" />} />
-                <ReportKPICard title="Bookings Booked" value={Number(k?.bookings?.booked || 0)} icon={<Package className="w-5 h-5" />} />
+                <ReportKPICard title="Bookings Confirmed" value={Number(k?.bookings?.booked || 0)} icon={<Building className="w-5 h-5" />} />
                 <ReportKPICard title="Avg Deal Size" value={formatCurrency(Math.round(avgDealSize))} icon={<DollarSign className="w-5 h-5" />} />
                 <ReportKPICard title="Conversion Rate" value={conversionRate} valueColor="text-green-600" />
               </div>
@@ -522,8 +550,8 @@ export const ReportsPage = () => {
           )}
         </TabsContent>
 
-        {/* Purchase Reports Tab */}
-        <TabsContent value="purchase" className="mt-6">
+        {/* Lead Reports Tab */}
+        <TabsContent value="leads" className="mt-6">
           {isLoading ? (
             <div className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -536,8 +564,8 @@ export const ReportsPage = () => {
           ) : (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <ReportKPICard title="Total Leads" value={totalLeads} icon={<Package className="w-5 h-5" />} />
-                <ReportKPICard title="Top Source" value={String((topLeadSource as any)?.key || 'N/A')} icon={<Clock className="w-5 h-5" />} />
+                <ReportKPICard title="Total Leads" value={totalLeads} icon={<Users className="w-5 h-5" />} />
+                <ReportKPICard title="Top Source" value={String((topLeadSource as any)?.key || 'N/A')} icon={<MapPin className="w-5 h-5" />} />
                 <ReportKPICard title="Qualified Leads" value={Number(k?.leads?.qualified || 0)} valueColor="text-green-600" />
                 <ReportKPICard title="Converted Leads" value={totalConverted} valueColor="text-green-600" />
               </div>
@@ -564,7 +592,7 @@ export const ReportsPage = () => {
                     ))}
                   </TableBody>
                 </Table>
-                <PaginationBar page={purchasePage} totalPages={purchaseTotalPages} onPageChange={setPurchasePage} className="px-0" />
+                <PaginationBar page={leadsPage} totalPages={leadsTotalPages} onPageChange={setLeadsPage} className="px-0" />
               </Card>
             </motion.div>
           )}
@@ -630,7 +658,7 @@ export const ReportsPage = () => {
           ) : (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <ReportKPICard title="Total Staff" value={Number(k?.users?.total || 0)} icon={<Package className="w-5 h-5" />} />
+                <ReportKPICard title="Total Staff" value={Number(k?.users?.total || 0)} icon={<Users className="w-5 h-5" />} />
                 <ReportKPICard title="Active Agents" value={Number(k?.users?.agents || 0)} />
                 <ReportKPICard title="Leads Created" value={totalLeads} />
                 <ReportKPICard title="Conversion Rate" value={conversionRate} valueColor="text-green-600" />
@@ -668,6 +696,8 @@ export const ReportsPage = () => {
           )}
         </TabsContent>
       </Tabs>
+        </>
+      )}
     </PageWrapper>
   );
 };

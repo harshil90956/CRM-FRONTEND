@@ -20,6 +20,7 @@ import { GlobalUsersPage } from "./pages/super-admin/GlobalUsersPage";
 import { GlobalRevenuePage } from "./pages/super-admin/GlobalRevenuePage";
 import { AuditLogsPage } from "./pages/super-admin/AuditLogsPage";
 import { SuperAdminSettingsPage } from "./pages/super-admin/SettingsPage";
+import { GlobalBookingsPage } from "./pages/super-admin/GlobalBookingsPage";
 
 // Admin Pages
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
@@ -94,6 +95,7 @@ const App = () => (
               <Route path="users" element={<GlobalUsersPage />} />
               <Route path="revenue" element={<GlobalRevenuePage />} />
               <Route path="audit" element={<AuditLogsPage />} />
+              <Route path="bookings" element={<GlobalBookingsPage />} />
               <Route path="settings" element={<SuperAdminSettingsPage />} />
             </Route>
 

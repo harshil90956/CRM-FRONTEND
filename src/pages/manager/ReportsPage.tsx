@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
+import { BarChart3, Download, Calendar, Building, Users, TrendingUp, DollarSign } from "lucide-react";
 import { Download, Calendar } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Card } from "@/components/ui/card";
@@ -299,7 +300,7 @@ export const ManagerReportsPage = () => {
           <SelectContent>
             <SelectItem value="team">Team Performance</SelectItem>
             <SelectItem value="leads">Lead Analysis</SelectItem>
-            <SelectItem value="projects">Project Report</SelectItem>
+            <SelectItem value="projects">Property Report</SelectItem>
           </SelectContent>
         </Select>
         <Select value={dateRange} onValueChange={setDateRange}>

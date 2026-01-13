@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -43,7 +43,7 @@ const getNavItems = (role: string): NavItem[] => {
       { label: "Users", icon: Users, path: "/super-admin/users" },
       { label: "Revenue", icon: DollarSign, path: "/super-admin/revenue" },
       { label: "Audit Logs", icon: ClipboardList, path: "/super-admin/audit" },
-      { label: "Bookings", icon: ClipboardList, path: "/admin/bookings" },
+      { label: "Bookings", icon: ClipboardList, path: "/super-admin/bookings" },
       { label: "Settings", icon: Settings, path: "/super-admin/settings" },
     ],
     admin: [
@@ -102,6 +102,20 @@ export const Sidebar = ({ role, collapsed, onToggle }: SidebarProps) => {
   const navItems = getNavItems(role);
   const roleInfo = roleLabels[role];
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  const [platformName, setPlatformName] = useState('RealCRM');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const cached = localStorage.getItem('crm_platformSettings');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as any;
+        if (parsed?.platformName) setPlatformName(String(parsed.platformName));
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
 
   const toggleExpand = (label: string) => {
     setExpandedItems((prev) =>
@@ -143,7 +157,7 @@ export const Sidebar = ({ role, collapsed, onToggle }: SidebarProps) => {
               <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                 <Building2 className="w-5 h-5 text-primary-foreground" />
               </div>
-              <span className="font-semibold text-sidebar-foreground">RealCRM</span>
+              <span className="font-semibold text-sidebar-foreground">{platformName}</span>
             </motion.div>
           )}
         </AnimatePresence>

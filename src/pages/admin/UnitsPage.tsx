@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Unit } from "@/data/mockData";
 import { cn } from "@/lib/utils";
-import { getUnitDisplayType, getUnitArea, getUnitLocation, formatPrice, getStatusStyle, getStatusLabel } from "@/lib/unitHelpers";
+import { getUnitMainType, getUnitArea, getUnitLocation, formatPrice, getStatusStyle, getStatusLabel } from "@/lib/unitHelpers";
 import { toast } from "sonner";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
@@ -106,7 +106,7 @@ export const UnitsPage = () => {
   const handleConfirmDelete = async () => {
     if (!deleteUnit) return;
     try {
-      await httpClient.delete(`/units/${deleteUnit.id}`);
+      await httpClient.del(`/units/${deleteUnit.id}`);
       toast.success(`Unit "${deleteUnit.unitNo}" deleted`);
       setDeleteOpen(false);
       setDeleteUnit(null);
@@ -189,7 +189,7 @@ export const UnitsPage = () => {
                   <span className={cn("px-2 py-1 rounded-full text-xs font-medium", getStatusStyle(unit.status))}>{getStatusLabel(unit.status)}</span>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span className="font-medium">{getUnitDisplayType(unit)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span className="font-medium">{getUnitMainType(unit)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Area</span><span className="font-medium">{getUnitArea(unit)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Location</span><span className="font-medium">{getUnitLocation(unit)}</span></div>
                 </div>
@@ -231,7 +231,7 @@ export const UnitsPage = () => {
                 </div>
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-muted-foreground">Type</p>
-                  <p className="font-medium">{getUnitDisplayType(viewUnit)}</p>
+                  <p className="font-medium">{getUnitMainType(viewUnit)}</p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg">
                   <p className="text-muted-foreground">Area</p>

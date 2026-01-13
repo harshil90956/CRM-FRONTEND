@@ -5,14 +5,29 @@ import type { UnitDb } from '@/api/services/units.service';
 
 type Unit = MockUnit | UnitDb;
 
+ const normalizeMainType = (value: unknown): string => {
+   if (typeof value !== 'string') return '';
+   const v = value.trim().toLowerCase();
+   if (v === 'residential') return 'Residential';
+   if (v === 'commercial') return 'Commercial';
+   if (v === 'industrial') return 'Industrial';
+   return value.trim();
+ };
+
 export const isResidential = (unit: Unit): unit is ResidentialUnit => 
-  unit.mainType === 'Residential';
+  normalizeMainType((unit as any).mainType) === 'Residential';
 
 export const isCommercial = (unit: Unit): unit is CommercialUnit => 
-  unit.mainType === 'Commercial';
+  normalizeMainType((unit as any).mainType) === 'Commercial';
 
 export const isIndustrial = (unit: Unit): unit is IndustrialUnit => 
-  unit.mainType === 'Industrial';
+  normalizeMainType((unit as any).mainType) === 'Industrial';
+
+export const getUnitMainType = (unit: Unit): string => {
+  const t = normalizeMainType((unit as any).mainType);
+  if (t === 'Residential' || t === 'Commercial' || t === 'Industrial') return t;
+  return 'Unknown';
+};
 
 export const getUnitDisplayType = (unit: Unit): string => {
   if (isResidential(unit)) {
@@ -69,6 +84,9 @@ export const getUnitTower = (unit: Unit): string => {
 };
 
 export const getUnitLocation = (unit: Unit): string => {
+  const projectLocation = typeof (unit as any).projectLocation === 'string' ? String((unit as any).projectLocation) : '';
+  if (projectLocation.trim()) return projectLocation;
+
   if (isResidential(unit)) {
     const tower = (unit as any)?.towerName;
     const floor = (unit as any)?.floorNumber;
