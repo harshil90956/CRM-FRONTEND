@@ -139,9 +139,15 @@ export const ManagerDashboard = () => {
       const agents = (overview?.agents || []) as any[];
       const projects = (overview?.projects || []) as any[];
       const units = (overview?.units || []) as any[];
+      const comms = (overview?.communications || { calls: [], emails: [], meetings: [] }) as any;
       const bookings = bookingsRes.success ? (bookingsRes.data || []) : [];
       const payments = paymentsRes.success ? (paymentsRes.data || []) : [];
       const activeProperties = projects.filter((p: any) => !p.isClosed && String(p.status).toUpperCase() !== 'CLOSED').length;
+
+      const communicationsCount =
+        Number((comms?.calls || []).length || 0) +
+        Number((comms?.emails || []).length || 0) +
+        Number((comms?.meetings || []).length || 0);
 
       setMetrics({
         totalLeads: leadTotal,
@@ -150,13 +156,13 @@ export const ManagerDashboard = () => {
         activeLeads,
         conversionRate,
         closedDeals,
-        communications: 0,
+        communications: communicationsCount,
         pendingTasks: 0,
         overdueTasks: 0,
         leadsThisMonth,
         revenueThisMonth,
         activeProperties,
-        _raw: { leads, agents, projects, units, bookings, payments },
+        _raw: { leads, agents, projects, units, bookings, payments, communications: comms },
       });
     } catch (error) {
       console.error('Failed to load metrics:', error);
@@ -173,7 +179,7 @@ export const ManagerDashboard = () => {
         leadsThisMonth: 0,
         revenueThisMonth: 0,
         activeProperties: 0,
-        _raw: { leads: [], agents: [], projects: [], units: [], bookings: [], payments: [] },
+        _raw: { leads: [], agents: [], projects: [], units: [], bookings: [], payments: [], communications: { calls: [], emails: [], meetings: [] } },
       });
     } finally {
       setIsLoading(false);
@@ -716,19 +722,59 @@ export const ManagerDashboard = () => {
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Email Campaigns</h4>
               <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">No data yet.</div>
+                {(() => {
+                  const emails = (metrics?._raw?.communications?.emails || []) as any[];
+                  if (emails.length === 0) return <div className="text-sm text-muted-foreground">No data yet.</div>;
+                  return emails.slice(0, 5).map((a) => (
+                    <div key={a.id} className="flex flex-col gap-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium truncate">{String(a.lead?.name || 'Lead')}</span>
+                        <span className="text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleString()}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{String(a.agent?.name || '')}</div>
+                      <div className="text-xs text-muted-foreground truncate">{String(a.message || '')}</div>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Phone Calls</h4>
               <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">No data yet.</div>
+                {(() => {
+                  const calls = (metrics?._raw?.communications?.calls || []) as any[];
+                  if (calls.length === 0) return <div className="text-sm text-muted-foreground">No data yet.</div>;
+                  return calls.slice(0, 5).map((a) => (
+                    <div key={a.id} className="flex flex-col gap-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium truncate">{String(a.lead?.name || 'Lead')}</span>
+                        <span className="text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleString()}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{String(a.agent?.name || '')}</div>
+                      <div className="text-xs text-muted-foreground truncate">{String(a.lead?.phone || '')}</div>
+                      <div className="text-xs text-muted-foreground truncate">{String(a.message || '')}</div>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <h4 className="font-medium text-foreground mb-2">Meetings</h4>
               <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">No data yet.</div>
+                {(() => {
+                  const meetings = (metrics?._raw?.communications?.meetings || []) as any[];
+                  if (meetings.length === 0) return <div className="text-sm text-muted-foreground">No data yet.</div>;
+                  return meetings.slice(0, 5).map((a) => (
+                    <div key={a.id} className="flex flex-col gap-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium truncate">{String(a.lead?.name || 'Lead')}</span>
+                        <span className="text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleString()}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{String(a.agent?.name || '')}</div>
+                      <div className="text-xs text-muted-foreground truncate">{String(a.message || '')}</div>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
           </div>

@@ -1,6 +1,9 @@
 // Helper functions for handling different unit types
 
-import { Unit, ResidentialUnit, CommercialUnit, IndustrialUnit } from '@/data/mockData';
+import type { Unit as MockUnit, ResidentialUnit, CommercialUnit, IndustrialUnit } from '@/data/mockData';
+import type { UnitDb } from '@/api/services/units.service';
+
+type Unit = MockUnit | UnitDb;
 
 export const isResidential = (unit: Unit): unit is ResidentialUnit => 
   unit.mainType === 'Residential';
@@ -13,56 +16,75 @@ export const isIndustrial = (unit: Unit): unit is IndustrialUnit =>
 
 export const getUnitDisplayType = (unit: Unit): string => {
   if (isResidential(unit)) {
-    return `${unit.bedrooms} BHK`;
+    const bedrooms = (unit as any)?.bedrooms;
+    return Number.isFinite(bedrooms) && Number(bedrooms) > 0 ? `${Number(bedrooms)} BHK` : 'Residential';
   }
   if (isCommercial(unit)) {
-    return unit.suitableFor;
+    return String((unit as any)?.suitableFor || 'Commercial');
   }
   if (isIndustrial(unit)) {
-    return unit.facilityType;
+    return String((unit as any)?.facilityType || 'Industrial');
   }
   return 'Unknown';
 };
 
 export const getUnitArea = (unit: Unit): string => {
   if (isResidential(unit)) {
-    return `${unit.carpetArea} sq.ft`;
+    const carpetArea = (unit as any)?.carpetArea;
+    const builtUpArea = (unit as any)?.builtUpArea;
+    const area = Number.isFinite(carpetArea) && Number(carpetArea) > 0 ? Number(carpetArea) : Number.isFinite(builtUpArea) && Number(builtUpArea) > 0 ? Number(builtUpArea) : null;
+    return area ? `${area} sq.ft` : 'N/A';
   }
   if (isCommercial(unit)) {
-    return `${unit.carpetArea} sq.ft`;
+    const carpetArea = (unit as any)?.carpetArea;
+    const builtUpArea = (unit as any)?.builtUpArea;
+    const area = Number.isFinite(carpetArea) && Number(carpetArea) > 0 ? Number(carpetArea) : Number.isFinite(builtUpArea) && Number(builtUpArea) > 0 ? Number(builtUpArea) : null;
+    return area ? `${area} sq.ft` : 'N/A';
   }
   if (isIndustrial(unit)) {
-    return `${unit.totalArea} sq.ft`;
+    const totalArea = (unit as any)?.totalArea;
+    const area = Number.isFinite(totalArea) && Number(totalArea) > 0 ? Number(totalArea) : null;
+    return area ? `${area} sq.ft` : 'N/A';
   }
   return 'N/A';
 };
 
 export const getUnitFloor = (unit: Unit): number => {
   if (isResidential(unit)) {
-    return unit.floorNumber;
+    const n = (unit as any)?.floorNumber;
+    return Number.isFinite(n) ? Number(n) : 0;
   }
   if (isCommercial(unit)) {
-    return unit.floorNumber;
+    const n = (unit as any)?.floorNumber;
+    return Number.isFinite(n) ? Number(n) : 0;
   }
   return 0;
 };
 
 export const getUnitTower = (unit: Unit): string => {
   if (isResidential(unit)) {
-    return unit.towerName;
+    return String((unit as any)?.towerName || '-');
   }
   return '-';
 };
 
 export const getUnitLocation = (unit: Unit): string => {
   if (isResidential(unit)) {
-    return `${unit.towerName}, Floor ${unit.floorNumber}`;
+    const tower = (unit as any)?.towerName;
+    const floor = (unit as any)?.floorNumber;
+    const hasTower = typeof tower === 'string' && tower.trim().length > 0;
+    const hasFloor = Number.isFinite(floor);
+    if (hasTower && hasFloor) return `${tower}, Floor ${Number(floor)}`;
+    if (hasTower) return String(tower);
+    if (hasFloor) return `Floor ${Number(floor)}`;
+    return '-';
   }
   if (isCommercial(unit)) {
-    return `Floor ${unit.floorNumber}`;
+    const floor = (unit as any)?.floorNumber;
+    return Number.isFinite(floor) ? `Floor ${Number(floor)}` : '-';
   }
   if (isIndustrial(unit)) {
-    return unit.roadAccess;
+    return String((unit as any)?.roadAccess || '-');
   }
   return '-';
 };

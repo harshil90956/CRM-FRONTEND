@@ -4,6 +4,11 @@ export type ManagerDashboardOverview = {
   paged: { items: any[]; total: number; page: number; pageSize: number };
   summary: { total: number; new: number; qualified: number; converted: number };
   agents: { id: string; name: string }[];
+  communications?: {
+    calls: any[];
+    emails: any[];
+    meetings: any[];
+  };
   projects: any[];
   units: any[];
 };
