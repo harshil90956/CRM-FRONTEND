@@ -220,7 +220,7 @@ export const ProjectsPage = () => {
       setIsDeleteDialogOpen(false);
       setSelectedProject(null);
     } catch (error) {
-      toast.error("Failed to delete project. Please try again.");
+      toast.error(error instanceof Error ? error.message : "Failed to delete project. Please try again.");
     }
   };
 

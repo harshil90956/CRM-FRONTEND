@@ -84,7 +84,7 @@ export const AuditLogsPage = () => {
               id: a.id,
               action: a.message || String(a.type),
               user: item.user.email || item.user.name,
-              target: a.leadId ? `Lead ${a.leadId}` : a.tenantId,
+              target: a.leadName ? a.leadName : a.leadId ? `Lead ${a.leadId}` : a.tenantId,
               time,
               sortKey,
               icon: typeIcons[type] || StickyNote,

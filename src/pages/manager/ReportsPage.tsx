@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { BarChart3, Download, Calendar } from "lucide-react";
+import { BarChart3, Download, Calendar, Building, Users, TrendingUp, DollarSign } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -107,7 +107,7 @@ export const ManagerReportsPage = () => {
   };
 
   return (
-    <PageWrapper title="Reports" description="Team performance and sales reports." sidebarCollapsed={sidebarCollapsed}
+    <PageWrapper title="Reports" description="Property performance and team analytics." sidebarCollapsed={sidebarCollapsed}
       actions={<Button className="w-full sm:w-auto" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" />Export</Button>}>
       
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 mb-6">
@@ -116,7 +116,7 @@ export const ManagerReportsPage = () => {
           <SelectContent>
             <SelectItem value="team">Team Performance</SelectItem>
             <SelectItem value="leads">Lead Analysis</SelectItem>
-            <SelectItem value="projects">Project Report</SelectItem>
+            <SelectItem value="projects">Property Report</SelectItem>
           </SelectContent>
         </Select>
         <Select value={dateRange} onValueChange={setDateRange}>

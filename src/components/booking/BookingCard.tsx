@@ -84,7 +84,13 @@ export const BookingCard = ({ booking, onClick, showActions, actions, delay = 0 
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-3 border-t">
-          <p className="text-lg font-semibold text-primary">{formatPrice(booking.totalPrice)}</p>
+          <div className="min-w-0">
+            <p className="text-lg font-semibold text-primary">{formatPrice(booking.totalPrice)}</p>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1 min-w-0">
+              <MapPin className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{booking.projectName || '—'}</span>
+            </div>
+          </div>
           {showActions && actions ? (
             <div className="flex flex-wrap gap-2 justify-end">{actions}</div>
           ) : (

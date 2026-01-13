@@ -11,6 +11,7 @@ import { useAppStore } from "@/stores/appStore";
 import type { AuthRole } from "@/stores/appStore";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { platformSettingsService } from "@/api";
 
 const roleConfig: Record<AuthRole, { label: string; icon: any; path: string; description: string }> = {
   SUPER_ADMIN: { label: "Super Admin", icon: Shield, path: "/super-admin", description: "Platform management" },
@@ -28,6 +29,7 @@ export const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [selectedRole, setSelectedRole] = useState<AuthRole | null>(null);
+  const [platformName, setPlatformName] = useState("RealCRM");
 
   const roleFromQuery = useMemo(() => {
     const raw = (searchParams.get('role') || '').toUpperCase();
@@ -40,6 +42,30 @@ export const LoginPage = () => {
     setSelectedRole(roleFromQuery);
     setStep('email');
   }, [roleFromQuery]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const cached = localStorage.getItem('crm_platformSettings');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as any;
+        if (parsed?.platformName) setPlatformName(String(parsed.platformName));
+      } catch {
+        // ignore
+      }
+    }
+
+    void (async () => {
+      try {
+        const res = await platformSettingsService.getPublic();
+        if (res.success && res.data?.platformName) {
+          setPlatformName(res.data.platformName);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
 
   const handleRoleSelect = (role: AuthRole) => {
     setSelectedRole(role);
@@ -98,7 +124,7 @@ export const LoginPage = () => {
               <Building2 className="w-6 h-6 text-primary-foreground" />
             </div>
             <div>
-              <span className="font-bold text-lg">RealCRM</span>
+              <span className="font-bold text-lg">{platformName}</span>
               <span className="text-muted-foreground text-sm ml-1">Pro</span>
             </div>
           </div>
@@ -115,7 +141,7 @@ export const LoginPage = () => {
             {step === "role" && (
               <>
                 <div className="text-center mb-6">
-                  <h1 className="text-2xl font-bold mb-2">Welcome to RealCRM</h1>
+                  <h1 className="text-2xl font-bold mb-2">Welcome to {platformName}</h1>
                   <p className="text-muted-foreground">Select your role to continue</p>
                 </div>
                 <div className="space-y-3 mb-6">

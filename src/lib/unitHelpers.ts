@@ -2,37 +2,78 @@
 
 import { Unit, ResidentialUnit, CommercialUnit, IndustrialUnit } from '@/data/mockData';
 
+ const normalizeMainType = (value: unknown): string => {
+   if (typeof value !== 'string') return '';
+   const v = value.trim().toLowerCase();
+   if (v === 'residential') return 'Residential';
+   if (v === 'commercial') return 'Commercial';
+   if (v === 'industrial') return 'Industrial';
+   return value.trim();
+ };
+
 export const isResidential = (unit: Unit): unit is ResidentialUnit => 
-  unit.mainType === 'Residential';
+  normalizeMainType((unit as any).mainType) === 'Residential';
 
 export const isCommercial = (unit: Unit): unit is CommercialUnit => 
-  unit.mainType === 'Commercial';
+  normalizeMainType((unit as any).mainType) === 'Commercial';
 
 export const isIndustrial = (unit: Unit): unit is IndustrialUnit => 
-  unit.mainType === 'Industrial';
+  normalizeMainType((unit as any).mainType) === 'Industrial';
+
+export const getUnitMainType = (unit: Unit): string => {
+  const t = normalizeMainType((unit as any).mainType);
+  if (t === 'Residential' || t === 'Commercial' || t === 'Industrial') return t;
+  return 'Unknown';
+};
 
 export const getUnitDisplayType = (unit: Unit): string => {
   if (isResidential(unit)) {
-    return `${unit.bedrooms} BHK`;
+    const beds = Number((unit as any).bedrooms);
+    if (!Number.isFinite(beds) || beds <= 0) return 'Residential';
+    return `${beds} BHK`;
   }
   if (isCommercial(unit)) {
-    return unit.suitableFor;
+    return String((unit as any).suitableFor || 'Commercial');
   }
   if (isIndustrial(unit)) {
-    return unit.facilityType;
+    return String((unit as any).facilityType || 'Industrial');
   }
   return 'Unknown';
 };
 
 export const getUnitArea = (unit: Unit): string => {
   if (isResidential(unit)) {
-    return `${unit.carpetArea} sq.ft`;
+    const carpet = Number((unit as any).carpetArea);
+    if (Number.isFinite(carpet) && carpet > 0) return `${carpet} sq.ft`;
+
+    const builtUp = Number((unit as any).builtUpArea);
+    if (Number.isFinite(builtUp) && builtUp > 0) return `${builtUp} sq.ft`;
+
+    const total = Number((unit as any).totalArea);
+    if (Number.isFinite(total) && total > 0) return `${total} sq.ft`;
+
+    return 'N/A';
   }
   if (isCommercial(unit)) {
-    return `${unit.carpetArea} sq.ft`;
+    const carpet = Number((unit as any).carpetArea);
+    if (Number.isFinite(carpet) && carpet > 0) return `${carpet} sq.ft`;
+
+    const builtUp = Number((unit as any).builtUpArea);
+    if (Number.isFinite(builtUp) && builtUp > 0) return `${builtUp} sq.ft`;
+
+    return 'N/A';
   }
   if (isIndustrial(unit)) {
-    return `${unit.totalArea} sq.ft`;
+    const total = Number((unit as any).totalArea);
+    if (Number.isFinite(total) && total > 0) return `${total} sq.ft`;
+
+    const builtUp = Number((unit as any).builtUpArea);
+    if (Number.isFinite(builtUp) && builtUp > 0) return `${builtUp} sq.ft`;
+
+    const carpet = Number((unit as any).carpetArea);
+    if (Number.isFinite(carpet) && carpet > 0) return `${carpet} sq.ft`;
+
+    return 'N/A';
   }
   return 'N/A';
 };
@@ -55,14 +96,23 @@ export const getUnitTower = (unit: Unit): string => {
 };
 
 export const getUnitLocation = (unit: Unit): string => {
+  const projectLocation = typeof (unit as any).projectLocation === 'string' ? String((unit as any).projectLocation) : '';
+  if (projectLocation.trim()) return projectLocation;
+
   if (isResidential(unit)) {
-    return `${unit.towerName}, Floor ${unit.floorNumber}`;
+    const tower = String((unit as any).towerName || '').trim();
+    const floor = Number((unit as any).floorNumber);
+    if (!tower && !Number.isFinite(floor)) return '-';
+    if (!tower) return `Floor ${Number.isFinite(floor) ? floor : '-'}`;
+    return `${tower}, Floor ${Number.isFinite(floor) ? floor : '-'}`;
   }
   if (isCommercial(unit)) {
-    return `Floor ${unit.floorNumber}`;
+    const floor = Number((unit as any).floorNumber);
+    if (!Number.isFinite(floor)) return '-';
+    return `Floor ${floor}`;
   }
   if (isIndustrial(unit)) {
-    return unit.roadAccess;
+    return String((unit as any).roadAccess || '-');
   }
   return '-';
 };

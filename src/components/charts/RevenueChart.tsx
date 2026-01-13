@@ -19,7 +19,13 @@ type RevenuePoint = {
   target: number;
 };
 
-export const RevenueChart = (props: { payments?: PaymentDb[] }) => {
+type RevenueSeriesPoint = {
+  month: string;
+  revenueCr: number;
+  targetCr: number;
+};
+
+export const RevenueChart = (props: { payments?: PaymentDb[]; series?: RevenueSeriesPoint[] }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [points, setPoints] = useState<RevenuePoint[]>([]);
 
@@ -57,6 +63,18 @@ export const RevenueChart = (props: { payments?: PaymentDb[] }) => {
       setPoints(data);
     };
 
+    if (props.series) {
+      setIsLoading(false);
+      setPoints(
+        (props.series || []).map((p) => ({
+          month: p.month,
+          revenue: Number(p.revenueCr || 0),
+          target: Number(p.targetCr || 0),
+        })),
+      );
+      return;
+    }
+
     if (props.payments) {
       setIsLoading(false);
       compute(props.payments);
@@ -75,7 +93,7 @@ export const RevenueChart = (props: { payments?: PaymentDb[] }) => {
         setIsLoading(false);
       }
     })();
-  }, [monthKeys, props.payments]);
+  }, [monthKeys, props.payments, props.series]);
 
   return (
     <motion.div
