@@ -30,7 +30,7 @@ interface AppState {
   lastTenantId: string | null;
   setLastTenantId: (id: string | null) => void;
   sendOtp: (email: string) => Promise<void>;
-  login: (email: string, otp: string, tenantId?: string | null) => Promise<CurrentUser | null>;
+  login: (email: string, otp: string, role: AuthRole, tenantId?: string | null) => Promise<CurrentUser | null>;
   logout: () => void;
   updateCurrentUser: (data: Partial<CurrentUser>) => void;
   tenants: Tenant[];
@@ -150,10 +150,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  const login = useCallback(async (email: string, otp: string, tenantId?: string | null): Promise<CurrentUser | null> => {
+  const login = useCallback(async (email: string, otp: string, role: AuthRole, tenantId?: string | null): Promise<CurrentUser | null> => {
     setIsLoading(true);
     try {
-      const payload: any = { email, otp };
+      const payload: any = { email, otp, role };
       const tid = String(tenantId || '').trim();
       if (tid) payload.tenantId = tid;
 

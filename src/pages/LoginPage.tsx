@@ -100,7 +100,11 @@ export const LoginPage = () => {
       toast.error("Please enter a valid 6-digit OTP");
       return;
     }
-    const user = await login(email, otp, tenantId);
+    if (!selectedRole) {
+      toast.error('Please select a role');
+      return;
+    }
+    const user = await login(email, otp, selectedRole, tenantId);
     if (user) {
       if (selectedRole && user.role !== selectedRole) {
         toast.error(`This account is ${roleConfig[user.role].label}. Please select the correct role.`);

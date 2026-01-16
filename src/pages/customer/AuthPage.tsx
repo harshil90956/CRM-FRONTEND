@@ -35,7 +35,7 @@ export const CustomerAuthPage = () => {
       toast.error("Please enter a valid 6-digit OTP");
       return;
     }
-    const user = await login(email, otp);
+    const user = await login(email, otp, 'CUSTOMER');
     if (user) {
       setStep("success");
       toast.success("Welcome back!");
