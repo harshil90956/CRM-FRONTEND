@@ -1,4 +1,4 @@
-import { httpClient } from '../httpClient';
+import { getFromSoftCache, httpClient, setToSoftCache } from '../httpClient';
 
 export type AdminUserDb = {
   id: string;
@@ -30,7 +30,13 @@ export type AdminUpdateUserInput = {
 
 export const adminUsersService = {
   list: async () => {
-    return httpClient.get<AdminUserDb[]>('/admin/users');
+    const key = `frontend:admin:users:list:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<AdminUserDb[]>('/admin/users');
+    setToSoftCache(key, res, 30000);
+    return res;
   },
 
   create: async (input: AdminCreateUserInput) => {

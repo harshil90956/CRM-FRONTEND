@@ -1,4 +1,4 @@
-import { httpClient } from '../httpClient';
+import { getFromSoftCache, httpClient, setToSoftCache } from '../httpClient';
 
 export type ReportsOverview = {
   range: { from: string; to: string };
@@ -89,6 +89,13 @@ export const adminReportsService = {
     if (params?.to) qs.set('to', params.to);
     if (params?.projectId) qs.set('projectId', params.projectId);
     const suffix = qs.toString() ? `?${qs.toString()}` : '';
-    return httpClient.get<ReportsOverview>(`/admin/reports/overview${suffix}`);
+
+    const key = `frontend:admin:reports:overview:${JSON.stringify({ from: params?.from || null, to: params?.to || null, projectId: params?.projectId || null })}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<ReportsOverview>(`/admin/reports/overview${suffix}`);
+    setToSoftCache(key, res, 30000);
+    return res;
   },
 };
