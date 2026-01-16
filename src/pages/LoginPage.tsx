@@ -100,20 +100,26 @@ export const LoginPage = () => {
       toast.error("Please enter a valid 6-digit OTP");
       return;
     }
-    const user = await login(email, otp, tenantId);
-    if (user) {
-      if (selectedRole && user.role !== selectedRole) {
-        toast.error(`This account is ${roleConfig[user.role].label}. Please select the correct role.`);
-        setOtp("");
-        setStep("role");
+    try {
+      const user = await login(email, otp, tenantId);
+      if (user) {
+        if (selectedRole && user.role !== selectedRole) {
+          toast.error(`This account is ${roleConfig[user.role].label}. Please select the correct role.`);
+          setOtp("");
+          setStep("role");
+          return;
+        }
+        setStep("success");
+        const role = user.role;
+        toast.success(`Welcome! Redirecting to ${roleConfig[role].label} dashboard...`);
+        setTimeout(() => navigate(roleConfig[role].path), 1000);
         return;
       }
-      setStep("success");
-      const role = user.role;
-      toast.success(`Welcome! Redirecting to ${roleConfig[role].label} dashboard...`);
-      setTimeout(() => navigate(roleConfig[role].path), 1000);
-    } else {
+
       toast.error("Authentication failed. Please try again.");
+    } catch (e: any) {
+      const msg = typeof e?.message === 'string' && e.message.trim() ? e.message : 'Authentication failed. Please try again.';
+      toast.error(msg);
     }
   };
 

@@ -153,7 +153,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const login = useCallback(async (email: string, otp: string, tenantId?: string | null): Promise<CurrentUser | null> => {
     setIsLoading(true);
     try {
-      const payload: any = { email, otp };
+      const normalizedEmail = String(email || '').trim().toLowerCase();
+      const normalizedOtp = String(otp || '').replace(/\s+/g, '');
+
+      const payload: any = { email: normalizedEmail, otp: normalizedOtp };
       const tid = String(tenantId || '').trim();
       if (tid) payload.tenantId = tid;
 
@@ -176,8 +179,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setCurrentUser(user);
       setIsAuthenticated(true);
       return user;
-    } catch {
-      return null;
+    } catch (e) {
+      throw e;
     } finally {
       setIsLoading(false);
     }
