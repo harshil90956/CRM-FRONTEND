@@ -6,6 +6,57 @@ export type ApiEnvelope<T> = {
   message?: string;
 };
 
+type SoftCacheEntry<T> = {
+  data: T;
+  expiry: number;
+};
+
+const softCache = new Map<string, SoftCacheEntry<unknown>>();
+
+export function getFromSoftCache<T>(key: string): T | null {
+  try {
+    const entry = softCache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiry) {
+      softCache.delete(key);
+      return null;
+    }
+    return entry.data as T;
+  } catch {
+    return null;
+  }
+}
+
+export function setToSoftCache<T>(key: string, data: T, ttlMs: number): void {
+  try {
+    const ttl = Number.isFinite(ttlMs) ? Math.max(0, Math.floor(ttlMs)) : 0;
+    if (ttl <= 0) return;
+    softCache.set(key, { data, expiry: Date.now() + ttl });
+  } catch {
+  }
+}
+
+export function clearSoftCache(): void {
+  try {
+    softCache.clear();
+  } catch {
+  }
+}
+
+const safeSerialize = (value: unknown): string => {
+  if (value === undefined) return '';
+  if (value === null) return 'null';
+
+  const isFormData = typeof FormData !== 'undefined' && value instanceof FormData;
+  if (isFormData) return '[formdata]';
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '[unserializable]';
+  }
+};
+
 export class ApiError extends Error {
   status?: number;
   payload?: unknown;
@@ -17,6 +68,8 @@ export class ApiError extends Error {
     this.payload = opts?.payload;
   }
 }
+
+const inFlightRequests = new Map<string, Promise<unknown>>();
 
 const getBaseUrl = (): string => {
   const base = (import.meta.env.VITE_API_URL as string | undefined) || (import.meta.env.VITE_API_BASE_URL as string | undefined);
@@ -78,6 +131,14 @@ const redirectToLogin = () => {
 async function requestRaw<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {
   const token = getAccessToken();
 
+  const key = `${method}:${path}:${token ? token.trim() : ''}:${safeSerialize(body)}`;
+  const existing = inFlightRequests.get(key);
+  if (existing) {
+    return existing as Promise<T>;
+  }
+
+  const promise = (async () => {
+
   const isFormData =
     typeof FormData !== 'undefined' &&
     body !== undefined &&
@@ -97,28 +158,41 @@ async function requestRaw<T>(method: HttpMethod, path: string, body?: unknown): 
   const requestBody: any =
     body === undefined ? undefined : isFormData ? (body as any) : JSON.stringify(body);
 
-  const res = await fetch(buildUrl(path), {
-    method,
-    headers,
-    body: requestBody,
-  });
+    const res = await fetch(buildUrl(path), {
+      method,
+      headers,
+      body: requestBody,
+    });
 
-  const payload = await toJsonOrText(res);
+    const payload = await toJsonOrText(res);
 
-  if (!res.ok) {
-    if (res.status === 401) {
-      clearStoredToken();
-      redirectToLogin();
+    if (!res.ok) {
+      if (res.status === 401) {
+        clearStoredToken();
+        redirectToLogin();
+      }
+
+      const message =
+        typeof payload === 'object' && payload && 'message' in payload
+          ? String((payload as any).message)
+          : `Request failed (${res.status})`;
+      throw new ApiError(message, { status: res.status, payload });
     }
 
-    const message =
-      typeof payload === 'object' && payload && 'message' in payload
-        ? String((payload as any).message)
-        : `Request failed (${res.status})`;
-    throw new ApiError(message, { status: res.status, payload });
-  }
+    if (method !== 'GET') {
+      clearSoftCache();
+    }
 
-  return payload as T;
+    return payload as T;
+  })();
+
+  inFlightRequests.set(key, promise as Promise<unknown>);
+
+  try {
+    return await promise;
+  } finally {
+    inFlightRequests.delete(key);
+  }
 }
 
 async function request<T>(method: HttpMethod, path: string, body?: unknown): Promise<ApiEnvelope<T>> {

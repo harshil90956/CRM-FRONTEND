@@ -1,4 +1,4 @@
-import { httpClient } from '../httpClient';
+import { getFromSoftCache, httpClient, setToSoftCache } from '../httpClient';
 
 export type PaymentDb = {
   id: string;
@@ -84,12 +84,28 @@ export type PaymentsSummary = {
 };
 
 export const paymentsService = {
-  list: async () => httpClient.get<PaymentDb[]>('/payments'),
+  list: async () => {
+    const key = `frontend:payments:list:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<PaymentDb[]>('/payments');
+    setToSoftCache(key, res, 30000);
+    return res;
+  },
   create: async (input: CreatePaymentInput) => httpClient.post<PaymentDb>('/payments', input),
   getById: async (id: string) => httpClient.get<PaymentDb>(`/payments/${id}`),
   update: async (id: string, input: UpdatePaymentInput) => httpClient.patch<PaymentDb>(`/payments/${id}`, input),
   markReceived: async (id: string, input: MarkReceivedInput) =>
     httpClient.post<PaymentDb>(`/payments/${id}/mark-received`, input),
   cancel: async (id: string, input: CancelPaymentInput) => httpClient.post<PaymentDb>(`/payments/${id}/cancel`, input),
-  getSummary: async () => httpClient.get<PaymentsSummary>('/payments/summary'),
+  getSummary: async () => {
+    const key = `frontend:payments:summary:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<PaymentsSummary>('/payments/summary');
+    setToSoftCache(key, res, 30000);
+    return res;
+  },
 };

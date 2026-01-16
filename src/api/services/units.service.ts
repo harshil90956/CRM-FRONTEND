@@ -1,4 +1,4 @@
-import { httpClient } from '../httpClient';
+import { getFromSoftCache, httpClient, setToSoftCache } from '../httpClient';
 
 export type UnitStatus = 'AVAILABLE' | 'BOOKED' | 'SOLD' | 'ON_HOLD';
 export type UnitType = 'RESIDENTIAL' | 'COMMERCIAL';
@@ -23,7 +23,15 @@ export type ManagerUnit = {
 type UnitApiAny = any;
 
 export const unitsService = {
-  list: async () => httpClient.get<UnitApiAny[]>('/units'),
+  list: async () => {
+    const key = `frontend:units:list:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<UnitApiAny[]>('/units');
+    setToSoftCache(key, res, 30000);
+    return res;
+  },
 
   listManagerUnits: async (): Promise<ManagerUnit[]> => {
     const res = await unitsService.list();

@@ -13,15 +13,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 import { unitsService, type ManagerUnit, type UnitStatus, type UnitType } from "@/api/services/units.service";
+import { useAppStore } from "@/stores/appStore";
 
 export const ManagerUnitsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const { currentUser } = useAppStore();
 
   const canWriteUnits = currentUser?.role === "ADMIN" || currentUser?.role === "SUPER_ADMIN";
-
-  const [units, setUnits] = useState<UnitDb[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -53,7 +51,12 @@ export const ManagerUnitsPage = () => {
     return map[status] || 'bg-muted text-muted-foreground border-border';
   };
 
-  const { data: units = [], isLoading, isError, refetch } = useQuery({
+  const {
+    data: units = [],
+    isLoading: isLoadingUnits,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['managerUnits'],
     queryFn: () => unitsService.listManagerUnits(),
     staleTime: 0,
@@ -89,7 +92,7 @@ export const ManagerUnitsPage = () => {
           className="w-full sm:w-auto"
           size="sm"
           variant="secondary"
-          disabled
+          disabled={!canWriteUnits}
         >
           Add Unit
         </Button>
@@ -132,7 +135,7 @@ export const ManagerUnitsPage = () => {
         </div>
       </div>
 
-      {isLoading ? (
+      {isLoadingUnits ? (
         <div className="text-sm text-muted-foreground">Loading units...</div>
       ) : isError ? (
         <div className="space-y-3">

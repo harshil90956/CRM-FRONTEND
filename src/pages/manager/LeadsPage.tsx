@@ -67,7 +67,7 @@ import { DatePreset } from "@/components/leads/DateRangePicker";
 import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
 
 import { leadsService } from "@/api";
-import type { ManagerAgent, AllowedLeadActions, LeadField, ManagerLead } from "@/api/services/leads.service";
+import type { ManagerAgent, LeadField, ManagerLead } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isWithinInterval } from "date-fns";
@@ -133,7 +133,6 @@ export const ManagerLeadsPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [leads, setLeads] = useState<ManagerLead[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
-  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [newLeadStaffId, setNewLeadStaffId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -153,21 +152,9 @@ export const ManagerLeadsPage = () => {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
   const [statusList, setStatusList] = useState<string[]>([]);
-  const [allowedActionsById, setAllowedActionsById] = useState<Record<string, AllowedLeadActions>>({});
   const [importCsv, setImportCsv] = useState("");
   const [importProjectId, setImportProjectId] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const getAllowedActionsForLead = (id: string): AllowedLeadActions => {
-    return (
-      allowedActionsById[id] || {
-        canEdit: true,
-        canAssign: true,
-        canChangeStatus: true,
-        canDelete: true,
-      }
-    );
-  };
 
   const detailLead = useMemo(() => {
     if (!selectedLead) return null;
@@ -361,14 +348,12 @@ export const ManagerLeadsPage = () => {
       const nextPage = args?.page ?? page;
       const nextPageSize = args?.pageSize ?? pageSize;
 
-      if (!agentsLoaded) {
+      if (!staffOptions.length) {
         try {
           const agents = await leadsService.getManagerAgents();
           setStaffOptions((agents || []).map((a: ManagerAgent) => ({ id: a.id, name: a.name })));
-          setAgentsLoaded(true);
         } catch {
           setStaffOptions([]);
-          setAgentsLoaded(true);
         }
       }
 
@@ -377,27 +362,12 @@ export const ManagerLeadsPage = () => {
         leadsService.getManagerLeadsSummary(),
       ]);
 
-      setLeads(paged.items || []);
+      const items = paged.items || [];
+      setLeads(items);
       setTotalCount(paged.total || 0);
       setKpiSummary(summary);
-
-      const results = await Promise.allSettled(
-        (paged.items || []).map(async (l) => {
-          return leadsService.getManagerAllowedActions(l.id);
-        }),
-      );
-
-      const next: Record<string, AllowedLeadActions> = {};
-      (paged.items || []).forEach((l, idx) => {
-        const r = results[idx];
-        if (r && r.status === 'fulfilled' && r.value) {
-          next[l.id] = r.value as AllowedLeadActions;
-        }
-      });
-      setAllowedActionsById(next);
     } catch {
       setLeads([]);
-      setAllowedActionsById({});
       toast.error('Failed to load leads');
     } finally {
       setIsLoading(false);
@@ -738,11 +708,6 @@ export const ManagerLeadsPage = () => {
     try {
       const deleted = await leadsService.deleteManagerLead(selectedLead.id);
       setLeads((prev) => prev.filter((l) => l.id !== deleted.id));
-      setAllowedActionsById((prev) => {
-        const next = { ...prev };
-        delete next[deleted.id];
-        return next;
-      });
       setIsDeleteOpen(false);
       setSelectedLead(null);
       toast.success('Lead deleted successfully');
@@ -786,18 +751,18 @@ export const ManagerLeadsPage = () => {
 
   const canBulkAssign = useMemo(() => {
     if (selectedIds.size === 0) return false;
-    return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canAssign);
-  }, [allowedActionsById, selectedIds]);
+    return true;
+  }, [selectedIds]);
 
   const canBulkChangeStatus = useMemo(() => {
     if (selectedIds.size === 0) return false;
-    return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canChangeStatus);
-  }, [allowedActionsById, selectedIds]);
+    return true;
+  }, [selectedIds]);
 
   const canBulkDelete = useMemo(() => {
     if (selectedIds.size === 0) return false;
-    return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canDelete);
-  }, [allowedActionsById, selectedIds]);
+    return true;
+  }, [selectedIds]);
 
   const handleAddLead = async () => {
     try {
@@ -984,12 +949,12 @@ export const ManagerLeadsPage = () => {
                     <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="bg-popover">
                       <DropdownMenuItem onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}><Eye className="w-4 h-4 mr-2" /> View</DropdownMenuItem>
-                      <DropdownMenuItem disabled={!getAllowedActionsForLead(lead.id).canEdit} onClick={() => handleEdit(lead)}>
+                      <DropdownMenuItem onClick={() => handleEdit(lead)}>
                         <Edit className="w-4 h-4 mr-2" /> Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleCall(lead)}><Phone className="w-4 h-4 mr-2" /> Call</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleEmail(lead)}><Mail className="w-4 h-4 mr-2" /> Email</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" disabled={!getAllowedActionsForLead(lead.id).canDelete} onClick={() => handleDelete(lead)}>
+                      <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(lead)}>
                         <Trash2 className="w-4 h-4 mr-2" /> Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -1016,7 +981,7 @@ export const ManagerLeadsPage = () => {
                 <DropdownMenuContent align="end" className="bg-popover">
                   <DropdownMenuItem onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}><Eye className="w-4 h-4 mr-2" /> View</DropdownMenuItem>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger disabled={!getAllowedActionsForLead(lead.id).canAssign || staffOptions.length === 0}>
+                    <DropdownMenuSubTrigger disabled={staffOptions.length === 0}>
                       <Users className="w-4 h-4 mr-2" /> Assign to
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="bg-popover">
@@ -1028,7 +993,7 @@ export const ManagerLeadsPage = () => {
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger disabled={!getAllowedActionsForLead(lead.id).canChangeStatus}>
+                    <DropdownMenuSubTrigger>
                       <ArrowUpDown className="w-4 h-4 mr-2" /> Change status
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="bg-popover">
@@ -1040,7 +1005,6 @@ export const ManagerLeadsPage = () => {
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuItem
-                    disabled={!getAllowedActionsForLead(lead.id).canEdit}
                     onClick={() => handleEdit(lead)}
                   >
                     <Edit className="w-4 h-4 mr-2" /> Edit
@@ -1049,7 +1013,6 @@ export const ManagerLeadsPage = () => {
                   <DropdownMenuItem onClick={() => handleEmail(lead)}><Mail className="w-4 h-4 mr-2" /> Email</DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive"
-                    disabled={!getAllowedActionsForLead(lead.id).canDelete}
                     onClick={() => handleDelete(lead)}
                   >
                     <Trash2 className="w-4 h-4 mr-2" /> Delete
@@ -1075,9 +1038,9 @@ export const ManagerLeadsPage = () => {
           onSelect={() => toggleSelect(lead.id)}
           onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}
           onViewDetails={() => { setSelectedLead(lead); setIsDetailOpen(true); }}
-          onEdit={getAllowedActionsForLead(lead.id).canEdit ? () => handleEdit(lead) : undefined}
+          onEdit={() => handleEdit(lead)}
           onCall={() => handleCall(lead)}
-          onDelete={getAllowedActionsForLead(lead.id).canDelete ? () => handleDelete(lead) : undefined}
+          onDelete={() => handleDelete(lead)}
           variant={variant}
         />
       ))}
@@ -1518,7 +1481,7 @@ export const ManagerLeadsPage = () => {
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => setIsEditOpen(false)}>Cancel</Button>
             <Button
               className="w-full sm:w-auto"
-              disabled={!selectedLead || !getAllowedActionsForLead(selectedLead.id).canEdit}
+              disabled={!selectedLead}
               onClick={handleUpdateLead}
             >
               Update Lead

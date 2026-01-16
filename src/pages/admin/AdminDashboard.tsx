@@ -30,7 +30,7 @@ import { LiveMetricsCard } from "@/components/dashboard/LiveMetricsCard";
 import { SummaryKPICard } from "@/components/dashboard/SummaryKPICard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { bookingsService, leadsService, paymentsService, projectsService, unitsService } from "@/api";
+import { adminUsersService, bookingsService, leadsService, paymentsService, projectsService, unitsService } from "@/api";
 import { useAppStore } from "@/stores/appStore";
 
 export const AdminDashboard = () => {
@@ -86,13 +86,14 @@ export const AdminDashboard = () => {
       const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
       const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-      const [leadStatsRes, leadsRes, projectsRes, unitsRes, paymentsRes, bookingsRes] = await Promise.all([
+      const [leadStatsRes, leadsRes, projectsRes, unitsRes, paymentsRes, bookingsRes, usersRes] = await Promise.all([
         leadsService.getLeadStats(),
         leadsService.listAdminLeads(),
         projectsService.list(),
         unitsService.list(),
         paymentsService.list(),
         bookingsService.list(),
+        adminUsersService.list(),
       ]);
 
       const leads = leadsRes.success ? (leadsRes.data || []) : [];
@@ -100,6 +101,7 @@ export const AdminDashboard = () => {
       const units = unitsRes.success ? (unitsRes.data || []) : [];
       const payments = paymentsRes.success ? (paymentsRes.data || []) : [];
       const bookings = bookingsRes.success ? (bookingsRes.data || []) : [];
+      const users = usersRes.success ? (usersRes.data || []) : [];
 
       const leadTotal = leadStatsRes.success
         ? (leadStatsRes.data?.total ?? leads.length)
@@ -153,7 +155,7 @@ export const AdminDashboard = () => {
         activeProperties,
         overduePayments,
         pendingPayments,
-        _raw: { leads, projects, units, payments, bookings },
+        _raw: { leads, projects, units, payments, bookings, users },
       });
     } catch {
       setMetrics({
@@ -246,7 +248,7 @@ export const AdminDashboard = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <div className="bg-card border border-border rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Top Agents</h3>
-              <TopAgentsCard leads={metrics?._raw?.leads} />
+              <TopAgentsCard users={metrics?._raw?.users} leads={metrics?._raw?.leads} />
             </div>
             <div className="bg-card border border-border rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
@@ -282,7 +284,12 @@ export const AdminDashboard = () => {
               <h3 className="text-lg font-semibold mb-4">Sales Funnel</h3>
               <LeadFunnelChart leads={metrics?._raw?.leads || []} />
             </div>
-            <ActivityCard />
+            <ActivityCard
+              users={metrics?._raw?.users}
+              leads={metrics?._raw?.leads}
+              bookings={metrics?._raw?.bookings}
+              payments={metrics?._raw?.payments}
+            />
           </div>
         );
 
@@ -293,7 +300,12 @@ export const AdminDashboard = () => {
               <h3 className="text-lg font-semibold mb-4">Unit Status</h3>
               <UnitStatusChart />
             </div>
-            <ActivityCard />
+            <ActivityCard
+              users={metrics?._raw?.users}
+              leads={metrics?._raw?.leads}
+              bookings={metrics?._raw?.bookings}
+              payments={metrics?._raw?.payments}
+            />
           </div>
         );
 
