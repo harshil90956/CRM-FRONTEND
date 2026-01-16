@@ -53,8 +53,27 @@ export const UnitsPage = () => {
         httpClient.get<Unit[]>("/units"),
         httpClient.get<any[]>("/projects"),
       ]);
-      setUnits(((unitsRes as any)?.data ?? []) as Unit[]);
-      setProjects(((projectsRes as any)?.data ?? []) as any[]);
+      const projectsList = ((projectsRes as any)?.data ?? []) as any[];
+      const byId = new Map<string, string>();
+      projectsList.forEach((p) => {
+        const id = String((p as any)?.id || '').trim();
+        const name = String((p as any)?.name || '').trim();
+        if (id && name) byId.set(id, name);
+      });
+
+      const unitsList = ((unitsRes as any)?.data ?? []) as any[];
+      const mapped = unitsList.map((u: any) => {
+        const pid = String(u?.projectId || '').trim();
+        const projectName = byId.get(pid) || String(u?.project || '').trim() || pid;
+        return {
+          ...u,
+          projectId: pid,
+          project: projectName,
+        };
+      });
+
+      setUnits(mapped as Unit[]);
+      setProjects(projectsList);
     } catch (e) {
       toast.error("Failed to load units");
     } finally {
@@ -64,9 +83,10 @@ export const UnitsPage = () => {
 
   const filteredUnits = useMemo(() => {
     return units.filter((u) => {
+      const projectName = String((u as any)?.project || '').toLowerCase();
       const matchesSearch =
         u.unitNo.toLowerCase().includes(search.toLowerCase()) ||
-        u.project.toLowerCase().includes(search.toLowerCase());
+        projectName.includes(search.toLowerCase());
       const matchesProject = projectFilter === "all" || u.projectId === projectFilter;
       const matchesStatus = statusFilter === "all" || u.status === statusFilter;
       return matchesSearch && matchesProject && matchesStatus;

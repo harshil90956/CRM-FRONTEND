@@ -66,8 +66,8 @@ import { ViewMode } from "@/components/leads/ViewToggle";
 import { DatePreset } from "@/components/leads/DateRangePicker";
 import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
 
-import { leadsService } from "@/api";
-import type { ManagerAgent, LeadField, ManagerLead } from "@/api/services/leads.service";
+import { leadsService, projectsService } from "@/api";
+import type { ManagerAgent, AllowedLeadActions, LeadField, ManagerLead } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isWithinInterval } from "date-fns";
@@ -132,7 +132,9 @@ export const ManagerLeadsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [isLoading, setIsLoading] = useState(true);
   const [leads, setLeads] = useState<ManagerLead[]>([]);
+  const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [newLeadStaffId, setNewLeadStaffId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -152,9 +154,21 @@ export const ManagerLeadsPage = () => {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
   const [statusList, setStatusList] = useState<string[]>([]);
+  const [allowedActionsById, setAllowedActionsById] = useState<Record<string, AllowedLeadActions>>({});
   const [importCsv, setImportCsv] = useState("");
   const [importProjectId, setImportProjectId] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const getAllowedActionsForLead = (id: string): AllowedLeadActions => {
+    return (
+      allowedActionsById[id] || {
+        canEdit: true,
+        canAssign: true,
+        canChangeStatus: true,
+        canDelete: true,
+      }
+    );
+  };
 
   const detailLead = useMemo(() => {
     if (!selectedLead) return null;
@@ -324,17 +338,25 @@ export const ManagerLeadsPage = () => {
     );
   };
 
-  const projectOptions = useMemo<ProjectOption[]>(() => {
-    const map = new Map<string, string>();
-    leads.forEach((l) => {
-      if (l.project?.id && l.project?.name) {
-        map.set(l.project.id, l.project.name);
+  const fetchProjects = async () => {
+    try {
+      const res = await projectsService.list();
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load projects');
       }
-    });
-    return Array.from(map.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [leads]);
+
+      const data = res.data || [];
+      const options = data
+        .filter((p) => !p.isClosed && String(p.status).toLowerCase() === 'active')
+        .map((p) => ({ id: p.id, name: p.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      setProjectOptions(options);
+    } catch (e) {
+      console.error(e);
+      setProjectOptions([]);
+    }
+  };
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -348,12 +370,14 @@ export const ManagerLeadsPage = () => {
       const nextPage = args?.page ?? page;
       const nextPageSize = args?.pageSize ?? pageSize;
 
-      if (!staffOptions.length) {
+      if (!agentsLoaded) {
         try {
           const agents = await leadsService.getManagerAgents();
           setStaffOptions((agents || []).map((a: ManagerAgent) => ({ id: a.id, name: a.name })));
+          setAgentsLoaded(true);
         } catch {
           setStaffOptions([]);
+          setAgentsLoaded(true);
         }
       }
 
@@ -362,12 +386,27 @@ export const ManagerLeadsPage = () => {
         leadsService.getManagerLeadsSummary(),
       ]);
 
-      const items = paged.items || [];
-      setLeads(items);
+      setLeads(paged.items || []);
       setTotalCount(paged.total || 0);
       setKpiSummary(summary);
+
+      const results = await Promise.allSettled(
+        (paged.items || []).map(async (l) => {
+          return leadsService.getManagerAllowedActions(l.id);
+        }),
+      );
+
+      const next: Record<string, AllowedLeadActions> = {};
+      (paged.items || []).forEach((l, idx) => {
+        const r = results[idx];
+        if (r && r.status === 'fulfilled' && r.value) {
+          next[l.id] = r.value as AllowedLeadActions;
+        }
+      });
+      setAllowedActionsById(next);
     } catch {
       setLeads([]);
+      setAllowedActionsById({});
       toast.error('Failed to load leads');
     } finally {
       setIsLoading(false);
@@ -376,6 +415,7 @@ export const ManagerLeadsPage = () => {
 
   useEffect(() => {
     void loadLeads({ page: 1, pageSize });
+    void fetchProjects();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -708,6 +748,11 @@ export const ManagerLeadsPage = () => {
     try {
       const deleted = await leadsService.deleteManagerLead(selectedLead.id);
       setLeads((prev) => prev.filter((l) => l.id !== deleted.id));
+      setAllowedActionsById((prev) => {
+        const next = { ...prev };
+        delete next[deleted.id];
+        return next;
+      });
       setIsDeleteOpen(false);
       setSelectedLead(null);
       toast.success('Lead deleted successfully');
@@ -751,26 +796,21 @@ export const ManagerLeadsPage = () => {
 
   const canBulkAssign = useMemo(() => {
     if (selectedIds.size === 0) return false;
-    return true;
-  }, [selectedIds]);
+    return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canAssign);
+  }, [allowedActionsById, selectedIds]);
 
   const canBulkChangeStatus = useMemo(() => {
     if (selectedIds.size === 0) return false;
-    return true;
-  }, [selectedIds]);
+    return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canChangeStatus);
+  }, [allowedActionsById, selectedIds]);
 
   const canBulkDelete = useMemo(() => {
     if (selectedIds.size === 0) return false;
-    return true;
-  }, [selectedIds]);
+    return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canDelete);
+  }, [allowedActionsById, selectedIds]);
 
   const handleAddLead = async () => {
     try {
-      if (!newLead.budget || !newLead.source) {
-        toast.error('Please fill all required fields');
-        return;
-      }
-
       const hasSchema = newLeadFields.length > 0;
       if (hasSchema) {
         if (!validateRequiredDynamic(newLeadFields, newDynamicData)) return;
@@ -780,37 +820,54 @@ export const ManagerLeadsPage = () => {
           phone: newLead.phone,
         });
         if (!core) return;
+
+        const schemaHasBudget = newLeadFields.some((f) => String(f.key) === 'budget');
+        const schemaHasSource = newLeadFields.some((f) => String(f.key) === 'source');
+
+        if (!schemaHasBudget) {
+          toast.error('Project schema missing required field: Budget');
+          return;
+        }
+        if (!schemaHasSource) {
+          toast.error('Project schema missing required field: Source');
+          return;
+        }
+
+        const budgetValue = (newDynamicData as any)?.budget;
+        const sourceValue = (newDynamicData as any)?.source;
+        const priorityValue = (newDynamicData as any)?.priority;
+        const notesValue = (newDynamicData as any)?.notes;
+
+        if (budgetValue === undefined || budgetValue === null || String(budgetValue).trim() === '') {
+          toast.error('Please fill required field: Budget');
+          return;
+        }
+        if (sourceValue === undefined || sourceValue === null || String(sourceValue).trim() === '') {
+          toast.error('Please fill required field: Source');
+          return;
+        }
+
         const dynamicData = buildDynamicPayload(newLeadFields, newDynamicData);
         await leadsService.createManagerLead({
           name: core.name,
           email: core.email,
           phone: core.phone,
           projectId: newLead.projectId ? newLead.projectId : undefined,
-          budget: newLead.budget,
-          source: newLead.source,
-          priority: newLead.priority ? newLead.priority : undefined,
-          notes: newLead.notes ? newLead.notes : undefined,
+          budget: String(budgetValue),
+          source: String(sourceValue),
+
+          priority: priorityValue === undefined || priorityValue === null || String(priorityValue).trim() === ''
+            ? undefined
+            : String(priorityValue),
+          notes: notesValue === undefined || notesValue === null || String(notesValue).trim() === ''
+            ? undefined
+            : String(notesValue),
           assignedToId: newLeadStaffId ? newLeadStaffId : undefined,
           ...(dynamicData ? { dynamicData } : {}),
         });
       } else {
-        if (!newLead.name || !newLead.email || !newLead.phone) {
-          toast.error('Please fill all required fields');
-          return;
-        }
-        const dynamicData = buildDynamicPayload(newLeadFields, newDynamicData);
-        await leadsService.createManagerLead({
-          name: newLead.name,
-          email: newLead.email,
-          phone: newLead.phone,
-          projectId: newLead.projectId ? newLead.projectId : undefined,
-          budget: newLead.budget,
-          source: newLead.source,
-          priority: newLead.priority ? newLead.priority : undefined,
-          notes: newLead.notes ? newLead.notes : undefined,
-          assignedToId: newLeadStaffId ? newLeadStaffId : undefined,
-          ...(dynamicData ? { dynamicData } : {}),
-        });
+        toast.error('Lead fields are not configured for this project');
+        return;
       }
 
       await loadLeads({ page: 1, pageSize });
@@ -892,6 +949,13 @@ export const ManagerLeadsPage = () => {
     }
   };
 
+  useEffect(() => {
+    if (!isAddOpen) return;
+    const projectId = newLead.projectId ? String(newLead.projectId) : null;
+    void loadLeadFields(projectId, 'new');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAddOpen, newLead.projectId]);
+
   const renderListView = () => (
     <Table className="min-w-[1100px]">
       <TableHeader>
@@ -949,12 +1013,12 @@ export const ManagerLeadsPage = () => {
                     <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="bg-popover">
                       <DropdownMenuItem onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}><Eye className="w-4 h-4 mr-2" /> View</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleEdit(lead)}>
+                      <DropdownMenuItem disabled={!getAllowedActionsForLead(lead.id).canEdit} onClick={() => handleEdit(lead)}>
                         <Edit className="w-4 h-4 mr-2" /> Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleCall(lead)}><Phone className="w-4 h-4 mr-2" /> Call</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleEmail(lead)}><Mail className="w-4 h-4 mr-2" /> Email</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(lead)}>
+                      <DropdownMenuItem className="text-destructive" disabled={!getAllowedActionsForLead(lead.id).canDelete} onClick={() => handleDelete(lead)}>
                         <Trash2 className="w-4 h-4 mr-2" /> Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -981,7 +1045,7 @@ export const ManagerLeadsPage = () => {
                 <DropdownMenuContent align="end" className="bg-popover">
                   <DropdownMenuItem onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}><Eye className="w-4 h-4 mr-2" /> View</DropdownMenuItem>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger disabled={staffOptions.length === 0}>
+                    <DropdownMenuSubTrigger disabled={!getAllowedActionsForLead(lead.id).canAssign || staffOptions.length === 0}>
                       <Users className="w-4 h-4 mr-2" /> Assign to
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="bg-popover">
@@ -993,7 +1057,7 @@ export const ManagerLeadsPage = () => {
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
+                    <DropdownMenuSubTrigger disabled={!getAllowedActionsForLead(lead.id).canChangeStatus}>
                       <ArrowUpDown className="w-4 h-4 mr-2" /> Change status
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="bg-popover">
@@ -1005,6 +1069,7 @@ export const ManagerLeadsPage = () => {
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuItem
+                    disabled={!getAllowedActionsForLead(lead.id).canEdit}
                     onClick={() => handleEdit(lead)}
                   >
                     <Edit className="w-4 h-4 mr-2" /> Edit
@@ -1013,6 +1078,7 @@ export const ManagerLeadsPage = () => {
                   <DropdownMenuItem onClick={() => handleEmail(lead)}><Mail className="w-4 h-4 mr-2" /> Email</DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive"
+                    disabled={!getAllowedActionsForLead(lead.id).canDelete}
                     onClick={() => handleDelete(lead)}
                   >
                     <Trash2 className="w-4 h-4 mr-2" /> Delete
@@ -1038,9 +1104,9 @@ export const ManagerLeadsPage = () => {
           onSelect={() => toggleSelect(lead.id)}
           onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}
           onViewDetails={() => { setSelectedLead(lead); setIsDetailOpen(true); }}
-          onEdit={() => handleEdit(lead)}
+          onEdit={getAllowedActionsForLead(lead.id).canEdit ? () => handleEdit(lead) : undefined}
           onCall={() => handleCall(lead)}
-          onDelete={() => handleDelete(lead)}
+          onDelete={getAllowedActionsForLead(lead.id).canDelete ? () => handleDelete(lead) : undefined}
           variant={variant}
         />
       ))}
@@ -1095,29 +1161,20 @@ export const ManagerLeadsPage = () => {
                         <div className="grid gap-2"><Label>Email *</Label><Input type="email" placeholder="email@example.com" value={newLead.email} onChange={(e) => setNewLead({ ...newLead, email: e.target.value })} /></div>
                         <div className="grid gap-2"><Label>Phone *</Label><Input placeholder="+91 98765 43210" value={newLead.phone} onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })} /></div>
                       </div>
-                    </>
-                  ) : (
-                    <>
                       <div className="grid gap-2">
-                        <Label>Project</Label>
-                        <Select
-                          value={newLead.projectId ? String(newLead.projectId) : 'none'}
-                          onValueChange={(v) => {
-                            const nextProject = v === 'none' ? '' : v;
-                            setNewLead({ ...newLead, projectId: nextProject });
-                            setNewDynamicData({});
-                          }}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                        <Label>Assign To *</Label>
+                        <Select value={newLeadStaffId} onValueChange={setNewLeadStaffId}>
+                          <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
                           <SelectContent className="bg-popover">
-                            <SelectItem value="none">No Project</SelectItem>
-                            {projectOptions.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                            {staffOptions.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </div>
-
+                    </>
+                  ) : (
+                    <>
                       {(() => {
                         const keys = getCoreKeys(newLeadFields);
                         const nameMissing = !keys.nameKey;
@@ -1158,7 +1215,6 @@ export const ManagerLeadsPage = () => {
                       {renderDynamicFields(newLeadFields, newDynamicData, setNewDynamicData)}
                     </>
                   )}
-
                   <div className="grid gap-2">
                     <Label>Assign To *</Label>
                     <Select value={newLeadStaffId} onValueChange={setNewLeadStaffId}>
@@ -1170,44 +1226,8 @@ export const ManagerLeadsPage = () => {
                       </SelectContent>
                     </Select>
                   </div>
-
-                  <div className="grid gap-2">
-                    <Label>Budget *</Label>
-                    <Input placeholder="₹50L - ₹1Cr" value={newLead.budget} onChange={(e) => setNewLead({ ...newLead, budget: e.target.value })} />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label>Source *</Label>
-                      <Select value={newLead.source} onValueChange={(v) => setNewLead({ ...newLead, source: v })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent className="bg-popover">
-                          <SelectItem value="Website">Website</SelectItem>
-                          <SelectItem value="Facebook">Facebook</SelectItem>
-                          <SelectItem value="Referral">Referral</SelectItem>
-                          <SelectItem value="Walk_in">Walk-in</SelectItem>
-                          <SelectItem value="Google_Ads">Google Ads</SelectItem>
-                          <SelectItem value="Unit_Interest">Unit Interest</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Priority</Label>
-                      <Select value={newLead.priority} onValueChange={(v) => setNewLead({ ...newLead, priority: v })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent className="bg-popover">
-                          <SelectItem value="High">High</SelectItem>
-                          <SelectItem value="Medium">Medium</SelectItem>
-                          <SelectItem value="Low">Low</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2"><Label>Notes</Label><Textarea placeholder="Additional notes..." value={newLead.notes} onChange={(e) => setNewLead({ ...newLead, notes: e.target.value })} /></div>
                 </div>
               )}
-
               <DialogFooter>
                 <Button
                   variant="outline"
@@ -1481,7 +1501,7 @@ export const ManagerLeadsPage = () => {
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => setIsEditOpen(false)}>Cancel</Button>
             <Button
               className="w-full sm:w-auto"
-              disabled={!selectedLead}
+              disabled={!selectedLead || !getAllowedActionsForLead(selectedLead.id).canEdit}
               onClick={handleUpdateLead}
             >
               Update Lead

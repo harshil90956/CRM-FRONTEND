@@ -13,13 +13,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 import { unitsService, type ManagerUnit, type UnitStatus, type UnitType } from "@/api/services/units.service";
-import { useAppStore } from "@/stores/appStore";
 
 export const ManagerUnitsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
-  const { currentUser } = useAppStore();
-
-  const canWriteUnits = currentUser?.role === "ADMIN" || currentUser?.role === "SUPER_ADMIN";
 
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -51,12 +47,7 @@ export const ManagerUnitsPage = () => {
     return map[status] || 'bg-muted text-muted-foreground border-border';
   };
 
-  const {
-    data: units = [],
-    isLoading: isLoadingUnits,
-    isError,
-    refetch,
-  } = useQuery({
+  const { data: unitsData = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['managerUnits'],
     queryFn: () => unitsService.listManagerUnits(),
     staleTime: 0,
@@ -64,7 +55,7 @@ export const ManagerUnitsPage = () => {
 
   const filteredUnits = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return units.filter((u: ManagerUnit) => {
+    return unitsData.filter((u: ManagerUnit) => {
       const matchesSearch =
         !q ||
         u.unitNumber.toLowerCase().includes(q) ||
@@ -73,17 +64,17 @@ export const ManagerUnitsPage = () => {
       const matchesType = typeFilter === 'all' || u.type === typeFilter;
       return matchesSearch && matchesStatus && matchesType;
     });
-  }, [units, search, statusFilter, typeFilter]);
+  }, [unitsData, search, statusFilter, typeFilter]);
 
   const { page, setPage, totalPages, pageItems: paginatedUnits } = useClientPagination(filteredUnits, { pageSize: 12 });
 
   const kpis = useMemo(() => {
-    const total = units.length;
-    const available = units.filter((u) => u.status === 'AVAILABLE').length;
-    const booked = units.filter((u) => u.status === 'BOOKED').length;
-    const sold = units.filter((u) => u.status === 'SOLD').length;
+    const total = unitsData.length;
+    const available = unitsData.filter((u) => u.status === 'AVAILABLE').length;
+    const booked = unitsData.filter((u) => u.status === 'BOOKED').length;
+    const sold = unitsData.filter((u) => u.status === 'SOLD').length;
     return { total, available, booked, sold };
-  }, [units]);
+  }, [unitsData]);
 
   return (
     <PageWrapper title="Unit Management" description="Manage property units and inventory." sidebarCollapsed={sidebarCollapsed}
@@ -92,7 +83,7 @@ export const ManagerUnitsPage = () => {
           className="w-full sm:w-auto"
           size="sm"
           variant="secondary"
-          disabled={!canWriteUnits}
+          disabled
         >
           Add Unit
         </Button>
@@ -135,7 +126,7 @@ export const ManagerUnitsPage = () => {
         </div>
       </div>
 
-      {isLoadingUnits ? (
+      {isLoading ? (
         <div className="text-sm text-muted-foreground">Loading units...</div>
       ) : isError ? (
         <div className="space-y-3">

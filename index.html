@@ -8,6 +8,30 @@
     <meta name="author" content="RealCRM" />
     <meta name="keywords" content="real estate, CRM, property management, lead management, builders, real estate software" />
 
+    <script>
+      (function () {
+        try {
+          window.addEventListener('unhandledrejection', function (event) {
+            var reason = event && event.reason;
+            var message = '';
+            if (reason && typeof reason.message === 'string') message = reason.message;
+            else if (typeof reason === 'string') message = reason;
+            if (message && message.indexOf('No checkout popup config found') !== -1) {
+              event.preventDefault();
+            }
+          });
+
+          window.addEventListener('error', function (event) {
+            var msg = (event && event.message) ? String(event.message) : '';
+            if (msg && msg.indexOf('No checkout popup config found') !== -1) {
+              event.preventDefault();
+            }
+          });
+        } catch (e) {
+        }
+      })();
+    </script>
+
     <meta property="og:title" content="RealCRM - Real Estate CRM Platform" />
     <meta property="og:description" content="Enterprise-grade Real Estate CRM platform for builders, managers, agents, and customers." />
     <meta property="og:type" content="website" />
