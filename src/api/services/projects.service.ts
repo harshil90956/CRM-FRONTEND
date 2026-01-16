@@ -1,4 +1,4 @@
-import { httpClient } from '../httpClient';
+import { getFromSoftCache, httpClient, setToSoftCache } from '../httpClient';
 
 export type ProjectDb = {
   id: string;
@@ -41,7 +41,13 @@ export type UpdateProjectInput = {
 
 export const projectsService = {
   list: async () => {
-    return httpClient.get<ProjectDb[]>('/projects');
+    const key = `frontend:projects:list:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<ProjectDb[]>('/projects');
+    setToSoftCache(key, res, 30000);
+    return res;
   },
 
   create: async (input: CreateProjectInput) => {

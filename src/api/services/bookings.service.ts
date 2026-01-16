@@ -1,4 +1,4 @@
-import { httpClient } from '../httpClient';
+import { getFromSoftCache, httpClient, setToSoftCache } from '../httpClient';
 
 export type BookingDb = {
   id: string;
@@ -98,9 +98,25 @@ export type UpdateBookingStatusInput = {
 };
 
 export const bookingsService = {
-  list: async () => httpClient.get<BookingDb[]>('/bookings'),
+  list: async () => {
+    const key = `frontend:bookings:list:{}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<BookingDb[]>('/bookings');
+    setToSoftCache(key, res, 30000);
+    return res;
+  },
   getById: async (id: string) => httpClient.get<BookingDb>(`/bookings/${id}`),
-  statuses: async () => httpClient.get<string[]>('/bookings/statuses'),
+  statuses: async () => {
+    const key = `frontend:bookings:statuses:{}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<string[]>('/bookings/statuses');
+    setToSoftCache(key, res, 30000);
+    return res;
+  },
   timeline: async (id: string) => httpClient.get<BookingTimelineResponse>(`/bookings/${id}/timeline`),
   create: async (input: CreateBookingInput) => httpClient.post<BookingDb>('/bookings', input),
   hold: async (input: CreateHoldBookingInput) => httpClient.post<BookingDb>('/bookings/hold', input),
