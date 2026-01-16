@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Settings, User, Bell, Building2, Users } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { httpClient } from "@/api";
 import { useAppStore } from "@/stores/appStore";
 import { toast } from "sonner";
 
@@ -16,7 +17,46 @@ export const AdminSettingsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const { currentUser, updateCurrentUser } = useAppStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const handleSave = () => toast.success("Settings saved successfully");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [designation, setDesignation] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setFullName(currentUser?.name || "");
+    setEmail(currentUser?.email || "");
+    setPhone(String(currentUser?.phone || ""));
+    setDesignation(String(currentUser?.designation || ""));
+  }, [currentUser?.id]);
+
+  const handleSave = async () => {
+    if (!currentUser?.id) {
+      toast.error("Unauthorized");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await httpClient.patch<any>("/auth/me", {
+        name: fullName,
+        email,
+        phone,
+        designation,
+      });
+
+      if (!res?.success || !res?.data) {
+        throw new Error(res?.message || "Failed to update profile");
+      }
+
+      updateCurrentUser(res.data);
+      toast.success("Settings saved successfully");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update profile");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const userInitials = (currentUser?.name || "Admin")
     .split(" ")
@@ -88,12 +128,12 @@ export const AdminSettingsPage = () => {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Full Name</Label><Input defaultValue="Admin - Soundarya Group" /></div>
-              <div className="space-y-2"><Label>Email</Label><Input defaultValue="admin@soundarya.test" /></div>
-              <div className="space-y-2"><Label>Phone</Label><Input defaultValue="+91 98765 43210" /></div>
-              <div className="space-y-2"><Label>Designation</Label><Input defaultValue="Managing Director" /></div>
+              <div className="space-y-2"><Label>Full Name</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
+              <div className="space-y-2"><Label>Email</Label><Input value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+              <div className="space-y-2"><Label>Phone</Label><Input value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+              <div className="space-y-2"><Label>Designation</Label><Input value={designation} onChange={(e) => setDesignation(e.target.value)} /></div>
             </div>
-            <Button onClick={handleSave}>Save Changes</Button>
+            <Button onClick={handleSave} disabled={saving}>Save Changes</Button>
           </Card>
         </TabsContent>
 

@@ -7,6 +7,9 @@ export type CurrentUser = {
   id: string;
   email: string;
   name: string;
+  phone?: string | null;
+  avatar?: string | null;
+  designation?: string | null;
   role: AuthRole;
   tenantId: string;
 };
