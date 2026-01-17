@@ -16,33 +16,114 @@ import { useNavigate } from "react-router-dom";
 import { useAppStore } from "@/stores/appStore";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { remindersService } from "@/api";
 
 interface TopbarProps {
   sidebarCollapsed: boolean;
   onMenuClick: () => void;
 }
 
-const notifications = [
-  { id: 1, title: "New lead assigned", message: "Rajesh Kumar has been assigned to you", time: "5 min ago", unread: true },
-  { id: 2, title: "Payment received", message: "₹45L received from Arjun Nair", time: "1 hour ago", unread: true },
-  { id: 3, title: "Site visit scheduled", message: "Tomorrow at 10:00 AM - Green Valley", time: "2 hours ago", unread: false },
-];
+type TopbarNotification = {
+  id: string;
+  title: string;
+  message: string;
+  time: string;
+  unread: boolean;
+};
+
+const formatRelativeTime = (iso: string): string => {
+  try {
+    const t = new Date(iso).getTime();
+    if (!Number.isFinite(t)) return '';
+    const diff = Date.now() - t;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins} min ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+    const days = Math.floor(hours / 24);
+    return `${days} day${days === 1 ? '' : 's'} ago`;
+  } catch {
+    return '';
+  }
+};
 
 export const Topbar = ({ sidebarCollapsed, onMenuClick }: TopbarProps) => {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const { currentUser, logout } = useAppStore();
-  const [notificationsList, setNotificationsList] = useState(notifications);
+  const { currentUser, logout, publicPlatformSettings } = useAppStore();
+  const [notificationsList, setNotificationsList] = useState<TopbarNotification[]>([]);
+
+  const storageKey = 'crm_agent_bell_seen';
+
   const unreadCount = notificationsList.filter((n) => n.unread).length;
 
-  const handleNotificationClick = (notificationId: number) => {
-    setNotificationsList(prev => 
-      prev.map(notification => 
-        notification.id === notificationId 
-          ? { ...notification, unread: false }
-          : notification
-      )
-    );
+  const loadAgentNotifications = async () => {
+    if (currentUser?.role !== 'AGENT') {
+      setNotificationsList([]);
+      return;
+    }
+
+    try {
+      const res = await remindersService.getMyReminders();
+      if (!res.success) {
+        setNotificationsList([]);
+        return;
+      }
+
+      const list = (res.data || []) as any[];
+      const now = Date.now();
+
+      let seen: Record<string, number> = {};
+      try {
+        const raw = sessionStorage.getItem(storageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') seen = parsed;
+        }
+      } catch {
+      }
+
+      const mapped: TopbarNotification[] = list
+        .slice()
+        .sort((a, b) => new Date(String(a.remindAt)).getTime() - new Date(String(b.remindAt)).getTime())
+        .slice(0, 50)
+        .map((r) => {
+          const id = String(r?.id || '');
+          const status = String(r?.status || '');
+          const remindAt = String(r?.remindAt || '');
+          const parsedAt = new Date(remindAt).getTime();
+          const isDue = Number.isFinite(parsedAt) && parsedAt <= now;
+
+          const title = String(r?.targetName || r?.title || 'Reminder');
+          const message = String(r?.note || r?.message || '');
+          const time = remindAt ? (isDue ? 'Due now' : formatRelativeTime(remindAt)) : '';
+
+          const unread = !seen[id] && (status === 'PENDING' ? isDue : status === 'SENT');
+
+          return { id, title, message, time, unread };
+        });
+
+      setNotificationsList(mapped);
+    } catch {
+      setNotificationsList([]);
+    }
+  };
+
+  const handleNotificationClick = (notificationId: string) => {
+    setNotificationsList((prev) => prev.map((n) => (n.id === notificationId ? { ...n, unread: false } : n)));
+    try {
+      const raw = sessionStorage.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : {};
+      const next: Record<string, number> = parsed && typeof parsed === 'object' ? parsed : {};
+      next[notificationId] = Date.now();
+      sessionStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+    }
+
+    if (currentUser?.role === 'AGENT') {
+      navigate('/agent/reminders');
+    }
   };
 
   const handleJumpTo = (destination: string) => {
@@ -108,6 +189,12 @@ export const Topbar = ({ sidebarCollapsed, onMenuClick }: TopbarProps) => {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {publicPlatformSettings?.maintenanceMode && (
+          <Badge variant="destructive" className="hidden sm:inline-flex">
+            Maintenance Mode
+          </Badge>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
@@ -137,7 +224,13 @@ export const Topbar = ({ sidebarCollapsed, onMenuClick }: TopbarProps) => {
         </DropdownMenu>
 
         {/* Notifications */}
-        <DropdownMenu>
+        <DropdownMenu
+          onOpenChange={(open) => {
+            if (open) {
+              void loadAgentNotifications();
+            }
+          }}
+        >
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">
               <Bell className="w-5 h-5 text-muted-foreground" />
@@ -148,7 +241,10 @@ export const Topbar = ({ sidebarCollapsed, onMenuClick }: TopbarProps) => {
               )}
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
+          <DropdownMenuContent
+            align="end"
+            className="w-80"
+          >
             <DropdownMenuLabel className="flex items-center justify-between">
               Notifications
               <Badge variant="secondary" className="text-xs">
@@ -156,28 +252,43 @@ export const Topbar = ({ sidebarCollapsed, onMenuClick }: TopbarProps) => {
               </Badge>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {notificationsList.map((notification) => (
-              <DropdownMenuItem
-                key={notification.id}
-                className="flex flex-col items-start gap-1 py-3 cursor-pointer"
-                onClick={() => handleNotificationClick(notification.id)}
-              >
-                <div className="flex items-center gap-2 w-full">
-                  <span className="font-medium text-sm">{notification.title}</span>
-                  {notification.unread && (
-                    <span className="w-2 h-2 bg-primary rounded-full" />
-                  )}
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {notification.message}
-                </span>
-                <span className="text-xs text-muted-foreground/60">
-                  {notification.time}
-                </span>
+            <div className="max-h-[320px] overflow-y-auto">
+              {notificationsList.map((notification) => (
+                <DropdownMenuItem
+                  key={notification.id}
+                  className="flex flex-col items-start gap-1 py-3 cursor-pointer"
+                  onClick={() => handleNotificationClick(notification.id)}
+                >
+                  <div className="flex items-center gap-2 w-full">
+                    <span className="font-medium text-sm">{notification.title}</span>
+                    {notification.unread && (
+                      <span className="w-2 h-2 bg-primary rounded-full" />
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {notification.message}
+                  </span>
+                  <span className="text-xs text-muted-foreground/60">
+                    {notification.time}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </div>
+
+            {notificationsList.length === 0 && (
+              <DropdownMenuItem className="justify-center text-muted-foreground" disabled>
+                No notifications
               </DropdownMenuItem>
-            ))}
+            )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="justify-center text-primary">
+            <DropdownMenuItem
+              className="justify-center text-primary"
+              onClick={() => {
+                if (currentUser?.role === 'AGENT') {
+                  navigate('/agent/reminders');
+                }
+              }}
+            >
               View all notifications
             </DropdownMenuItem>
           </DropdownMenuContent>

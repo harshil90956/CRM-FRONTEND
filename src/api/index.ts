@@ -7,6 +7,7 @@ export { leadsService } from './services/leads.service';
 export { bookingsService } from './services/bookings.service';
 export { paymentsService } from './services/payments.service';
 export { reviewsService } from './services/reviews.service';
+export { remindersService } from './services/reminders.service';
 export { staffService } from './services/staff.service';
 export { unitsService } from './services/units.service';
 export { publicProjectsService } from './services/public-projects.service';

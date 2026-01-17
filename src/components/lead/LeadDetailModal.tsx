@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { 
   X, 
@@ -22,7 +22,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { LeadDb } from "@/api/services/leads.service";
+import { leadsService } from "@/api";
+import type { LeadActivityDb, LeadDb } from "@/api/services/leads.service";
+import { useAppStore } from "@/stores/appStore";
 
 interface LeadDetailModalProps {
   lead: (Omit<LeadDb, 'assignedTo'> & { assignedTo?: string | null }) | null;
@@ -53,16 +55,81 @@ const getNoteIcon = (type: string) => {
 };
 
 export const LeadDetailModal = ({ lead, open, onOpenChange }: LeadDetailModalProps) => {
+  const { currentUser } = useAppStore();
   const [newNote, setNewNote] = useState("");
   const [noteType, setNoteType] = useState<'note' | 'call' | 'email' | 'meeting'>('note');
   const [closeReason, setCloseReason] = useState("");
   const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [activities, setActivities] = useState<LeadActivityDb[]>([]);
+  const [isActivitiesLoading, setIsActivitiesLoading] = useState(false);
 
   if (!lead) return null;
 
-  const handleAddNote = () => {
-    toast.error('Activity/notes are not implemented on backend yet');
-    setNewNote('');
+  const canViewActivities = currentUser?.role === 'AGENT' || currentUser?.role === 'MANAGER';
+
+  const loadActivities = async () => {
+    if (!lead?.id) return;
+    if (!canViewActivities) {
+      setActivities([]);
+      return;
+    }
+
+    setIsActivitiesLoading(true);
+    try {
+      const res =
+        currentUser?.role === 'MANAGER'
+          ? await leadsService.listManagerLeadActivities(lead.id)
+          : await leadsService.listAgentLeadActivities(lead.id);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load activities');
+      }
+      setActivities(res.data || []);
+    } catch {
+      setActivities([]);
+    } finally {
+      setIsActivitiesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    void loadActivities();
+  }, [open, lead?.id]);
+
+  const handleAddNote = async () => {
+    if (currentUser?.role !== 'AGENT') {
+      toast.error('Only assigned agent can add activity');
+      return;
+    }
+
+    const note = String(newNote || '').trim();
+    if (!note) {
+      toast.error('Please enter a note');
+      return;
+    }
+
+    const typeMap: Record<typeof noteType, 'CALL' | 'MEETING' | 'EMAIL' | 'NOTE'> = {
+      call: 'CALL',
+      email: 'EMAIL',
+      meeting: 'MEETING',
+      note: 'NOTE',
+    };
+
+    try {
+      const res = await leadsService.logAgentLeadActivity(lead.id, {
+        activityType: typeMap[noteType],
+        notes: note,
+      });
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to save activity');
+      }
+      setNewNote('');
+      toast.success('Activity saved');
+      await loadActivities();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to save activity';
+      toast.error(msg);
+    }
   };
 
   const handleCloseLead = () => {
@@ -136,6 +203,36 @@ export const LeadDetailModal = ({ lead, open, onOpenChange }: LeadDetailModalPro
             </div>
 
             <Separator />
+
+            {/* Activity Timeline */}
+            <div>
+              <h3 className="font-semibold mb-4">Activity</h3>
+              {!canViewActivities ? (
+                <p className="text-sm text-muted-foreground">Activities are not available for this role.</p>
+              ) : isActivitiesLoading ? (
+                <p className="text-sm text-muted-foreground">Loading...</p>
+              ) : activities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No activity yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {activities.map((a) => {
+                    const Icon = getNoteIcon(String(a.type || '').toLowerCase());
+                    return (
+                      <div key={a.id} className="flex gap-3 p-3 bg-muted/30 rounded-lg">
+                        <Icon className="h-4 w-4 text-muted-foreground mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-medium truncate">{a.creator?.name || 'Activity'}</p>
+                            <p className="text-xs text-muted-foreground">{format(new Date(a.createdAt), 'MMM dd, yyyy • HH:mm')}</p>
+                          </div>
+                          <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{a.message}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Add Note */}
             <div>

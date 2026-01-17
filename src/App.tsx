@@ -54,6 +54,7 @@ import { AgentPropertiesPage } from "./pages/agent/PropertiesPage";
 import { AgentPerformancePage } from "./pages/agent/PerformancePage";
 import { AgentBookingsPage } from "./pages/agent/BookingsPage";
 import { AgentReviewsPage } from "./pages/agent/AgentReviewsPage";
+import { AgentRemindersPage } from "./pages/agent/RemindersPage";
 
 // Customer Pages
 import { CustomerPortal } from "./pages/customer/CustomerPortal";
@@ -169,6 +170,7 @@ const App = () => (
             >
               <Route index element={<AgentDashboard />} />
               <Route path="leads" element={<AgentLeadsPage />} />
+              <Route path="reminders" element={<AgentRemindersPage />} />
               <Route path="properties" element={<AgentPropertiesPage />} />
               <Route path="reviews" element={<AgentReviewsPage />} />
               <Route path="performance" element={<AgentPerformancePage />} />

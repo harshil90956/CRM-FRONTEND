@@ -16,8 +16,8 @@ import { toast } from "sonner";
 import { getLeadStatusStyle } from "@/lib/unitHelpers";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
-import { leadsService, projectsService } from "@/api";
-import type { LeadDb, LeadField } from "@/api/services/leads.service";
+import { leadsService, projectsService, remindersService } from "@/api";
+import type { LeadActivityDb, LeadDb, LeadField } from "@/api/services/leads.service";
 import type { ProjectDb } from "@/api/services/projects.service";
 import { useAppStore } from "@/stores/appStore";
 
@@ -32,6 +32,9 @@ export const AgentLeadsPage = () => {
   const [activityNote, setActivityNote] = useState("");
   const [activityType, setActivityType] = useState("call");
   const [activityStatus, setActivityStatus] = useState("");
+  const [leadActivities, setLeadActivities] = useState<LeadActivityDb[]>([]);
+  const [isActivitiesLoading, setIsActivitiesLoading] = useState(false);
+
   const [projects, setProjects] = useState<ProjectDb[]>([]);
   const [editLead, setEditLead] = useState({
     name: "",
@@ -249,10 +252,27 @@ export const AgentLeadsPage = () => {
       setActivityType("call");
       setActivityStatus("");
 
+      setLeadActivities([]);
+
       await loadLeads();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save activity';
       toast.error(message);
+    }
+  };
+
+  const loadActivities = async (leadId: string) => {
+    setIsActivitiesLoading(true);
+    try {
+      const res = await leadsService.listAgentLeadActivities(leadId);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to load activities');
+      }
+      setLeadActivities(res.data || []);
+    } catch {
+      setLeadActivities([]);
+    } finally {
+      setIsActivitiesLoading(false);
     }
   };
 
@@ -262,6 +282,7 @@ export const AgentLeadsPage = () => {
     setActivityType("call");
     setActivityStatus(lead.status || "");
     setIsActivityOpen(true);
+    void loadActivities(lead.id);
   };
 
   const handleOpenEdit = (lead: LeadDb) => {
@@ -318,6 +339,79 @@ export const AgentLeadsPage = () => {
     window.open(`tel:${lead.phone}`, '_blank');
   };
 
+  const [isReminderOpen, setIsReminderOpen] = useState(false);
+  const [reminderLead, setReminderLead] = useState<LeadDb | null>(null);
+  const [reminderAt, setReminderAt] = useState('');
+  const [reminderNote, setReminderNote] = useState('');
+  const [isReminderSaving, setIsReminderSaving] = useState(false);
+
+  const handleOpenReminder = (lead: LeadDb) => {
+    setReminderLead(lead);
+    setReminderAt('');
+    setReminderNote('');
+    setIsReminderOpen(true);
+  };
+
+  const handleSaveReminder = async () => {
+    if (!reminderLead) return;
+    if (!reminderAt) {
+      toast.error('Please select reminder date and time');
+      return;
+    }
+
+    const dt = new Date(reminderAt);
+    if (Number.isNaN(dt.getTime())) {
+      toast.error('Invalid reminder time');
+      return;
+    }
+    if (dt.getTime() <= Date.now()) {
+      toast.error('Reminder time must be in the future');
+      return;
+    }
+
+    setIsReminderSaving(true);
+    try {
+      const res = await remindersService.createReminder({
+        targetType: 'LEAD',
+        targetId: reminderLead.id,
+        remindAt: dt.toISOString(),
+        ...(reminderNote.trim() ? { note: reminderNote.trim() } : {}),
+      });
+
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to create reminder');
+      }
+
+      try {
+        window.dispatchEvent(
+          new CustomEvent('crm:reminder-scheduled', {
+            detail: {
+              id: (res as any)?.data?.id || `${reminderLead.id}:${dt.toISOString()}`,
+              remindAt: dt.toISOString(),
+              title: 'Follow-up Reminder',
+              message: 'You have a follow-up pending for a lead.',
+              note: reminderNote.trim() ? reminderNote.trim() : undefined,
+              targetName: reminderLead.name,
+              targetId: reminderLead.id,
+            },
+          }),
+        );
+      } catch {
+      }
+
+      toast.success('Reminder scheduled successfully');
+      setIsReminderOpen(false);
+      setReminderLead(null);
+      setReminderAt('');
+      setReminderNote('');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create reminder';
+      toast.error(message);
+    } finally {
+      setIsReminderSaving(false);
+    }
+  };
+
   return (
     <PageWrapper title="My Leads" description="Manage your assigned leads." sidebarCollapsed={sidebarCollapsed}>
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
@@ -369,6 +463,9 @@ export const AgentLeadsPage = () => {
               <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenActivity(lead)}>
                 <MessageSquare className="w-4 h-4 mr-1" />Log Activity
               </Button>
+              <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenReminder(lead)}>
+                Set Reminder
+              </Button>
               <Button variant="outline" size="icon" onClick={() => handleCall(lead)}>
                 <Phone className="w-4 h-4" />
               </Button>
@@ -419,10 +516,42 @@ export const AgentLeadsPage = () => {
               <Label>Notes</Label>
               <Textarea placeholder="Add details about the interaction..." value={activityNote} onChange={(e) => setActivityNote(e.target.value)} />
             </div>
+
+            <div className="space-y-2">
+              <Label>Activity Timeline</Label>
+              <div className="rounded-md border p-3 max-h-48 overflow-auto">
+                {isActivitiesLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading...</div>
+                ) : leadActivities.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No activity yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {leadActivities.map((a) => (
+                      <div key={a.id} className="text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{a.creator?.name || 'Activity'}</span>
+                          <span className="text-xs text-muted-foreground">{new Date(a.createdAt).toLocaleString()}</span>
+                        </div>
+                        <div className="text-muted-foreground whitespace-pre-wrap break-words">{a.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsActivityOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveActivity}>Save Activity</Button>
+            <Button
+              onClick={async () => {
+                await handleSaveActivity();
+                if (selectedLead?.id) {
+                  await loadActivities(selectedLead.id);
+                }
+              }}
+            >
+              Save Activity
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -507,6 +636,43 @@ export const AgentLeadsPage = () => {
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => setIsEditOpen(false)}>Cancel</Button>
             <Button className="w-full sm:w-auto" onClick={handleUpdateLead}>
               Update Lead
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isReminderOpen} onOpenChange={setIsReminderOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Set Reminder</DialogTitle>
+            <DialogDescription>
+              Schedule a reminder for {reminderLead?.name || 'this lead'}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label>Date & Time</Label>
+              <Input
+                type="datetime-local"
+                value={reminderAt}
+                onChange={(e) => setReminderAt(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Note (optional)</Label>
+              <Textarea
+                placeholder="Add a note for yourself..."
+                value={reminderNote}
+                onChange={(e) => setReminderNote(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsReminderOpen(false)} disabled={isReminderSaving}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveReminder} disabled={isReminderSaving}>
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>

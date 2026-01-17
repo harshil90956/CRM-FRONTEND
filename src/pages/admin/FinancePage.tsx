@@ -117,7 +117,7 @@ export const FinancePage = () => {
   const loadPayments = async () => {
     setIsLoadingPayments(true);
     try {
-      const res = await paymentsService.list();
+      const res = await paymentsService.listAdmin();
       const list = (((res as any)?.data ?? []) as any[]).map((p: any) => ({
         ...p,
         displayDate: p.paidAt ?? p.createdAt,
@@ -136,13 +136,15 @@ export const FinancePage = () => {
   };
 
   useEffect(() => {
-    loadPayments();
+    void (async () => {
+      await Promise.all([loadPayments(), loadSummary()]);
+    })();
   }, []);
 
   const loadSummary = async () => {
     setSummaryLoading(true);
     try {
-      const res = await paymentsService.getSummary();
+      const res = await paymentsService.getSummaryAdmin();
       setSummary(((res as any)?.data ?? null) as any);
     } catch {
       setSummary(null);
@@ -151,10 +153,6 @@ export const FinancePage = () => {
       setSummaryLoading(false);
     }
   };
-
-  useEffect(() => {
-    loadSummary();
-  }, []);
 
   const { page, setPage, totalPages, pageItems: paginatedPayments } = useClientPagination(payments, { pageSize: 10 });
 
@@ -343,7 +341,7 @@ export const FinancePage = () => {
 
       {/* Revenue Chart */}
       <div className="mb-6">
-        <RevenueChart />
+        <RevenueChart payments={payments as any} />
       </div>
 
       {/* P&L Summary */}

@@ -72,6 +72,7 @@ const getNavItems = (role: string): NavItem[] => {
       { label: "Dashboard", icon: LayoutDashboard, path: "/agent" },
       { label: "My Leads", icon: Users, path: "/agent/leads" },
       { label: "Properties", icon: Building2, path: "/agent/properties" },
+      { label: "My Reminders", icon: ClipboardList, path: "/agent/reminders" },
       { label: "Bookings", icon: ClipboardList, path: "/agent/bookings" },
       { label: "My Reviews", icon: ClipboardList, path: "/agent/reviews" },
       { label: "Performance", icon: BarChart3, path: "/agent/performance" },
