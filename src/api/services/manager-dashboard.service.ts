@@ -1,4 +1,4 @@
-import { httpClient } from '../httpClient';
+import { getFromSoftCache, httpClient, setToSoftCache } from '../httpClient';
 
 export type ManagerDashboardOverview = {
   paged: { items: any[]; total: number; page: number; pageSize: number };
@@ -15,6 +15,12 @@ export type ManagerDashboardOverview = {
 
 export const managerDashboardService = {
   overview: async () => {
-    return httpClient.get<ManagerDashboardOverview>('/dashboard/manager/overview');
+    const key = `frontend:dashboard:manager:overview:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<ManagerDashboardOverview>('/dashboard/manager/overview');
+    setToSoftCache(key, res, 30000);
+    return res;
   },
 };

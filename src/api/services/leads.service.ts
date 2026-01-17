@@ -1,4 +1,4 @@
-import { httpClient } from '../httpClient';
+import { getFromSoftCache, httpClient, setToSoftCache } from '../httpClient';
 
 export type LeadDb = {
   id: string;
@@ -105,13 +105,6 @@ export type PaginatedResult<T> = {
 	total: number;
 	page: number;
 	pageSize: number;
-};
-
-export type AllowedLeadActions = {
-  canEdit: boolean;
-  canAssign: boolean;
-  canChangeStatus: boolean;
-  canDelete: boolean;
 };
 
 export type ManagerAgent = {
@@ -267,7 +260,13 @@ export const leadsService = {
   },
 
   listAgentLeads: async () => {
-    return httpClient.get<LeadDb[]>('/agent/leads');
+    const key = `frontend:agent:leads:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<LeadDb[]>('/agent/leads');
+    setToSoftCache(key, res, 30000);
+    return res;
   },
 
   getById: async (id: string) => {
@@ -294,7 +293,13 @@ export const leadsService = {
     const params = new URLSearchParams();
     if (tenantId) params.set('tenantId', tenantId);
     if (projectId) params.set('projectId', projectId);
-    return httpClient.get<LeadField[]>(`/admin/lead-fields?${params.toString()}`);
+    const key = `frontend:admin:lead-fields:${JSON.stringify({ tenantId: tenantId || null, projectId: projectId || null })}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<LeadField[]>(`/admin/lead-fields?${params.toString()}`);
+    setToSoftCache(key, res, 30000);
+    return res;
   },
 
   createLeadField: async (input: AdminCreateLeadFieldInput) => {
@@ -314,7 +319,13 @@ export const leadsService = {
   },
 
   listAdminLeads: async () => {
-    return httpClient.get<LeadDb[]>('/admin/leads');
+    const key = `frontend:admin:leads:list:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<LeadDb[]>('/admin/leads');
+    setToSoftCache(key, res, 30000);
+    return res;
   },
 
   createLead: async (input: AdminCreateLeadInput) => {
@@ -345,7 +356,13 @@ export const leadsService = {
   },
 
   getLeadStats: async () => {
-    return httpClient.get<LeadStats>('/admin/leads/stats');
+    const key = `frontend:admin:leads:stats:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<LeadStats>('/admin/leads/stats');
+    setToSoftCache(key, res, 30000);
+    return res;
   },
 
   getManagerLeads: async (args?: { page?: number; pageSize?: number }) => {
@@ -354,6 +371,10 @@ export const leadsService = {
 		if (args?.pageSize) params.set('pageSize', String(args.pageSize));
 		const path = params.toString() ? `/manager/leads?${params.toString()}` : '/manager/leads';
 
+		const key = `frontend:manager:leads:list:${JSON.stringify({ page: args?.page ?? null, pageSize: args?.pageSize ?? null })}`;
+		const cached = getFromSoftCache<any>(key);
+		if (cached) return cached;
+
 		const res = await httpClient.get<PaginatedResult<ManagerLead>>(path);
 		if (!res.success) {
 			throw new Error(res.message || 'Failed to load manager leads');
@@ -361,10 +382,15 @@ export const leadsService = {
 		if (!res.data) {
 			throw new Error(res.message || 'Failed to load manager leads');
 		}
+		setToSoftCache(key, res.data, 30000);
 		return res.data;
 	},
 
 	getManagerLeadsSummary: async () => {
+		const key = `frontend:manager:leads:summary:${JSON.stringify({})}`;
+		const cached = getFromSoftCache<any>(key);
+		if (cached) return cached;
+
 		const res = await httpClient.get<ManagerLeadsSummary>('/manager/leads/summary');
 		if (!res.success) {
 			throw new Error(res.message || 'Failed to load lead summary');
@@ -372,6 +398,7 @@ export const leadsService = {
 		if (!res.data) {
 			throw new Error(res.message || 'Failed to load lead summary');
 		}
+		setToSoftCache(key, res.data, 30000);
 		return res.data;
 	},
 
@@ -403,34 +430,41 @@ export const leadsService = {
   },
 
   getManagerLeadStatuses: async () => {
+    const key = `frontend:manager:leads:status:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
     const res = await httpClient.get<string[]>('/manager/leads/status');
     if (!res.success) {
       throw new Error(res.message || 'Failed to load manager lead statuses');
     }
-    return res.data || [];
+    const out = res.data || [];
+    setToSoftCache(key, out, 30000);
+    return out;
   },
 
   getManagerLeadStatusList: async () => {
-    return httpClient.get<string[]>('/manager/leads/status');
-  },
+    const key = `frontend:manager:leads:status:list:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
 
-  getManagerAllowedActions: async (id: string) => {
-    const res = await httpClient.get<AllowedLeadActions>(`/manager/leads/allowed-actions/${id}`);
-    if (!res.success) {
-      throw new Error(res.message || 'Failed to load allowed actions');
-    }
-    if (!res.data) {
-      throw new Error(res.message || 'Failed to load allowed actions');
-    }
-    return res.data;
+    const res = await httpClient.get<string[]>('/manager/leads/status');
+    setToSoftCache(key, res, 30000);
+    return res;
   },
 
   getManagerAgents: async () => {
+    const key = `frontend:manager:leads:agents:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
     const res = await httpClient.get<ManagerAgent[]>('/manager/leads/agents');
     if (!res.success) {
       throw new Error(res.message || 'Failed to load agents');
     }
-    return res.data || [];
+    const out = res.data || [];
+    setToSoftCache(key, out, 30000);
+    return out;
   },
 
   createManagerLead: async (input: ManagerCreateLeadInput) => {
