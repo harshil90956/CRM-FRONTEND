@@ -153,21 +153,33 @@ export const ManagerLeadsPage = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
-  const [statusList, setStatusList] = useState<string[]>([]);
-  const [allowedActionsById, setAllowedActionsById] = useState<Record<string, AllowedLeadActions>>({});
+  const statusList = useMemo(() => statusOptions.slice(1).map((s) => s.value), []);
+
   const [importCsv, setImportCsv] = useState("");
   const [importProjectId, setImportProjectId] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const leadById = useMemo(() => {
+    const map: Record<string, any> = {};
+    (leads || []).forEach((l: any) => {
+      if (l?.id) map[String(l.id)] = l;
+    });
+    return map;
+  }, [leads]);
+
+  const deriveAllowedActions = (lead: any | null | undefined): AllowedLeadActions => {
+    const status = String(lead?.status || '').toUpperCase();
+    const isClosed = status === 'CONVERTED' || status === 'LOST';
+    return {
+      canEdit: !isClosed,
+      canAssign: !isClosed,
+      canChangeStatus: !isClosed,
+      canDelete: false,
+    };
+  };
+
   const getAllowedActionsForLead = (id: string): AllowedLeadActions => {
-    return (
-      allowedActionsById[id] || {
-        canEdit: true,
-        canAssign: true,
-        canChangeStatus: true,
-        canDelete: true,
-      }
-    );
+    return deriveAllowedActions(leadById[id]);
   };
 
   const detailLead = useMemo(() => {
@@ -389,24 +401,8 @@ export const ManagerLeadsPage = () => {
       setLeads(paged.items || []);
       setTotalCount(paged.total || 0);
       setKpiSummary(summary);
-
-      const results = await Promise.allSettled(
-        (paged.items || []).map(async (l) => {
-          return leadsService.getManagerAllowedActions(l.id);
-        }),
-      );
-
-      const next: Record<string, AllowedLeadActions> = {};
-      (paged.items || []).forEach((l, idx) => {
-        const r = results[idx];
-        if (r && r.status === 'fulfilled' && r.value) {
-          next[l.id] = r.value as AllowedLeadActions;
-        }
-      });
-      setAllowedActionsById(next);
     } catch {
       setLeads([]);
-      setAllowedActionsById({});
       toast.error('Failed to load leads');
     } finally {
       setIsLoading(false);
@@ -748,11 +744,6 @@ export const ManagerLeadsPage = () => {
     try {
       const deleted = await leadsService.deleteManagerLead(selectedLead.id);
       setLeads((prev) => prev.filter((l) => l.id !== deleted.id));
-      setAllowedActionsById((prev) => {
-        const next = { ...prev };
-        delete next[deleted.id];
-        return next;
-      });
       setIsDeleteOpen(false);
       setSelectedLead(null);
       toast.success('Lead deleted successfully');
@@ -797,17 +788,17 @@ export const ManagerLeadsPage = () => {
   const canBulkAssign = useMemo(() => {
     if (selectedIds.size === 0) return false;
     return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canAssign);
-  }, [allowedActionsById, selectedIds]);
+  }, [leadById, selectedIds]);
 
   const canBulkChangeStatus = useMemo(() => {
     if (selectedIds.size === 0) return false;
     return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canChangeStatus);
-  }, [allowedActionsById, selectedIds]);
+  }, [leadById, selectedIds]);
 
   const canBulkDelete = useMemo(() => {
     if (selectedIds.size === 0) return false;
     return Array.from(selectedIds).every((id) => getAllowedActionsForLead(id).canDelete);
-  }, [allowedActionsById, selectedIds]);
+  }, [leadById, selectedIds]);
 
   const handleAddLead = async () => {
     try {

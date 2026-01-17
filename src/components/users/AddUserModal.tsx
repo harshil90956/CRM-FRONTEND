@@ -24,8 +24,10 @@ export const AddUserModal = ({ open, onOpenChange, onSuccess, editUser }: AddUse
   const [name, setName] = useState(editUser?.name || "");
   const [email, setEmail] = useState(editUser?.email || "");
   const [phone, setPhone] = useState(editUser?.phone || "");
-  const [role, setRole] = useState<"manager" | "agent">(editUser?.role || "agent");
+  const [role, setRole] = useState<"manager" | "agent">(editUser?.role || "manager");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const isEditingAgent = editUser?.role === 'agent';
 
   // Update form when editUser changes
   useEffect(() => {
@@ -43,7 +45,7 @@ export const AddUserModal = ({ open, onOpenChange, onSuccess, editUser }: AddUse
     setName("");
     setEmail("");
     setPhone("");
-    setRole("agent");
+    setRole("manager");
   };
 
   const handleSubmit = async () => {
@@ -70,7 +72,7 @@ export const AddUserModal = ({ open, onOpenChange, onSuccess, editUser }: AddUse
         if (name !== editUser.name) changedFields.name = name;
         if (email !== editUser.email) changedFields.email = email;
         if (phone !== editUser.phone) changedFields.phone = phone;
-        const roleChanged = role !== editUser.role;
+        const roleChanged = !isEditingAgent && role !== editUser.role;
 
         // Only update if there are actual changes
         if (Object.keys(changedFields).length > 0) {
@@ -95,7 +97,7 @@ export const AddUserModal = ({ open, onOpenChange, onSuccess, editUser }: AddUse
           name,
           email,
           phone,
-          role: role.toUpperCase() as 'MANAGER' | 'AGENT',
+          role: 'MANAGER' as const,
         };
 
         const res = await adminUsersService.create(payload);
@@ -151,15 +153,11 @@ export const AddUserModal = ({ open, onOpenChange, onSuccess, editUser }: AddUse
 
           <div>
             <Label>Role</Label>
-            <Select value={role} onValueChange={(v: "manager" | "agent") => setRole(v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="manager">Manager</SelectItem>
-                <SelectItem value="agent">Agent</SelectItem>
-              </SelectContent>
-            </Select>
+            {editUser ? (
+              <Input value={role === 'agent' ? 'Agent' : 'Manager'} disabled />
+            ) : (
+              <Input value="Manager" disabled />
+            )}
           </div>
 
           <div className="flex gap-2 justify-end pt-4">

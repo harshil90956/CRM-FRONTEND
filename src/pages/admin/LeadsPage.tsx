@@ -119,7 +119,7 @@ export const LeadsPage = () => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
-  const [assignedFilter, setAssignedFilter] = useState("unassigned");
+  const [assignedFilter, setAssignedFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [viewMode, setViewMode] = useState<ViewMode>('list');
