@@ -14,6 +14,12 @@ export type CurrentUser = {
   tenantId: string;
 };
 
+export type PublicPlatformSettings = {
+  platformName: string;
+  supportEmail: string;
+  maintenanceMode: boolean;
+};
+
 interface Tenant {
   id: number | string;
   name: string;
@@ -46,6 +52,9 @@ interface AppState {
   leads: any[];
   addLeads: (newLeads: any[]) => void;
   isLoading: boolean;
+
+  publicPlatformSettings: PublicPlatformSettings | null;
+  refreshPublicPlatformSettings: () => Promise<void>;
 }
 
 const AppContext = createContext<AppState | undefined>(undefined);
@@ -65,6 +74,35 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [dateRange, setDateRange] = useState(30);
   const [leads, setLeads] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  const [publicPlatformSettings, setPublicPlatformSettings] = useState<PublicPlatformSettings | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = localStorage.getItem('crm_public_platform_settings');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as any;
+      if (!parsed || typeof parsed !== 'object') return null;
+      return {
+        platformName: String(parsed.platformName || 'RealCRM'),
+        supportEmail: String(parsed.supportEmail || 'support@realcrm.com'),
+        maintenanceMode: Boolean(parsed.maintenanceMode),
+      };
+    } catch {
+      return null;
+    }
+  });
+
+  const refreshPublicPlatformSettings = useCallback(async (): Promise<void> => {
+    try {
+      const res = await httpClient.get<PublicPlatformSettings>('/public/settings');
+      if (!res?.success || !res?.data) return;
+      setPublicPlatformSettings(res.data);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('crm_public_platform_settings', JSON.stringify(res.data));
+      }
+    } catch {
+    }
+  }, []);
 
   const getStoredToken = (): string | null => {
     if (typeof window === 'undefined') return null;
@@ -116,6 +154,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       }
     })();
   }, []);
+
+  React.useEffect(() => {
+    void refreshPublicPlatformSettings();
+    const id = setInterval(() => {
+      void refreshPublicPlatformSettings();
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [refreshPublicPlatformSettings]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -226,6 +272,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       updateCurrentUser,
       tenants, addTenant, updateTenant, goals, setGoals,
       dateRange, setDateRange, leads, addLeads, isLoading,
+      publicPlatformSettings, refreshPublicPlatformSettings,
     }}>
       {children}
     </AppContext.Provider>

@@ -93,6 +93,15 @@ export const paymentsService = {
     setToSoftCache(key, res, 30000);
     return res;
   },
+  listAdmin: async () => {
+    const key = `frontend:admin:payments:list:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<PaymentDb[]>('/admin/payments');
+    setToSoftCache(key, res, 30000);
+    return res;
+  },
   create: async (input: CreatePaymentInput) => httpClient.post<PaymentDb>('/payments', input),
   getById: async (id: string) => httpClient.get<PaymentDb>(`/payments/${id}`),
   update: async (id: string, input: UpdatePaymentInput) => httpClient.patch<PaymentDb>(`/payments/${id}`, input),
@@ -105,6 +114,15 @@ export const paymentsService = {
     if (cached) return cached;
 
     const res = await httpClient.get<PaymentsSummary>('/payments/summary');
+    setToSoftCache(key, res, 30000);
+    return res;
+  },
+  getSummaryAdmin: async () => {
+    const key = `frontend:admin:payments:summary:${JSON.stringify({})}`;
+    const cached = getFromSoftCache<any>(key);
+    if (cached) return cached;
+
+    const res = await httpClient.get<PaymentsSummary>('/admin/payments/summary');
     setToSoftCache(key, res, 30000);
     return res;
   },

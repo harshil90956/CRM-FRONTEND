@@ -10,9 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { platformSettingsService } from "@/api";
+import { useAppStore } from "@/stores/appStore";
 
 export const SuperAdminSettingsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
+  const { refreshPublicPlatformSettings } = useAppStore();
 
   const [isLoading, setIsLoading] = useState(false);
   const [settings, setSettings] = useState({
@@ -63,6 +65,7 @@ export const SuperAdminSettingsPage = () => {
         throw new Error(res.message || 'Failed to save settings');
       }
       localStorage.setItem('crm_platformSettings', JSON.stringify(res.data));
+      await refreshPublicPlatformSettings();
       toast.success("Settings saved successfully");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to save settings');

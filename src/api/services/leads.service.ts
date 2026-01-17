@@ -168,6 +168,18 @@ export type AgentLogActivityInput = {
   status?: string;
 };
 
+export type LeadActivityDb = {
+  id: string;
+  type: string;
+  message: string;
+  createdBy?: string | null;
+  createdAt: string;
+  creator?: {
+    id: string;
+    name: string;
+  } | null;
+};
+
 export type LeadsImportResult = {
   total: number;
   created: number;
@@ -287,6 +299,14 @@ export const leadsService = {
 
   logAgentLeadActivity: async (id: string, input: AgentLogActivityInput) => {
     return httpClient.post<LeadDb>(`/agent/leads/${id}/activity`, input);
+  },
+
+  listAgentLeadActivities: async (id: string) => {
+    return httpClient.get<LeadActivityDb[]>(`/agent/leads/${id}/activities`);
+  },
+
+  listManagerLeadActivities: async (id: string) => {
+    return httpClient.get<LeadActivityDb[]>(`/manager/leads/${id}/activities`);
   },
 
   listLeadFields: async (projectId?: string | null, tenantId?: string) => {
