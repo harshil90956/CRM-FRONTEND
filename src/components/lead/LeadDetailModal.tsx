@@ -54,6 +54,16 @@ const getNoteIcon = (type: string) => {
   }
 };
 
+const safeFormat = (value: unknown, fmt: string): string => {
+  try {
+    const d = new Date(String(value || ''));
+    if (!Number.isFinite(d.getTime())) return 'N/A';
+    return format(d, fmt);
+  } catch {
+    return 'N/A';
+  }
+};
+
 export const LeadDetailModal = ({ lead, open, onOpenChange }: LeadDetailModalProps) => {
   const { currentUser } = useAppStore();
   const [newNote, setNewNote] = useState("");
@@ -63,12 +73,11 @@ export const LeadDetailModal = ({ lead, open, onOpenChange }: LeadDetailModalPro
   const [activities, setActivities] = useState<LeadActivityDb[]>([]);
   const [isActivitiesLoading, setIsActivitiesLoading] = useState(false);
 
-  if (!lead) return null;
-
   const canViewActivities = currentUser?.role === 'AGENT' || currentUser?.role === 'MANAGER';
+  const leadId = lead?.id;
 
   const loadActivities = async () => {
-    if (!lead?.id) return;
+    if (!leadId) return;
     if (!canViewActivities) {
       setActivities([]);
       return;
@@ -78,8 +87,8 @@ export const LeadDetailModal = ({ lead, open, onOpenChange }: LeadDetailModalPro
     try {
       const res =
         currentUser?.role === 'MANAGER'
-          ? await leadsService.listManagerLeadActivities(lead.id)
-          : await leadsService.listAgentLeadActivities(lead.id);
+          ? await leadsService.listManagerLeadActivities(leadId)
+          : await leadsService.listAgentLeadActivities(leadId);
       if (!res.success) {
         throw new Error(res.message || 'Failed to load activities');
       }
@@ -93,8 +102,11 @@ export const LeadDetailModal = ({ lead, open, onOpenChange }: LeadDetailModalPro
 
   useEffect(() => {
     if (!open) return;
+    if (!leadId) return;
     void loadActivities();
-  }, [open, lead?.id]);
+  }, [open, leadId, canViewActivities]);
+
+  if (!lead) return null;
 
   const handleAddNote = async () => {
     if (currentUser?.role !== 'AGENT') {
@@ -197,7 +209,7 @@ export const LeadDetailModal = ({ lead, open, onOpenChange }: LeadDetailModalPro
                 <Calendar className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-xs text-muted-foreground">Created</p>
-                  <p className="text-sm font-medium">{format(new Date(lead.createdAt), 'MMM dd, yyyy')}</p>
+                  <p className="text-sm font-medium">{safeFormat(lead.createdAt, 'MMM dd, yyyy')}</p>
                 </div>
               </div>
             </div>
@@ -223,7 +235,7 @@ export const LeadDetailModal = ({ lead, open, onOpenChange }: LeadDetailModalPro
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-sm font-medium truncate">{a.creator?.name || 'Activity'}</p>
-                            <p className="text-xs text-muted-foreground">{format(new Date(a.createdAt), 'MMM dd, yyyy • HH:mm')}</p>
+                            <p className="text-xs text-muted-foreground">{safeFormat(a.createdAt, 'MMM dd, yyyy • HH:mm')}</p>
                           </div>
                           <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{a.message}</p>
                         </div>
