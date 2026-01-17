@@ -1,16 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Users, Search, MessageSquare, Phone } from "lucide-react";
+import { Users, Search, MessageSquare, Phone, Mail, MoreHorizontal, Eye, Edit, CalendarClock } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { KPICard } from "@/components/cards/KPICard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getLeadStatusStyle } from "@/lib/unitHelpers";
@@ -20,21 +33,28 @@ import { leadsService, projectsService, remindersService } from "@/api";
 import type { LeadActivityDb, LeadDb, LeadField } from "@/api/services/leads.service";
 import type { ProjectDb } from "@/api/services/projects.service";
 import { useAppStore } from "@/stores/appStore";
+import { LeadDetailModal } from "@/components/lead/LeadDetailModal";
 
 export const AgentLeadsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const { currentUser } = useAppStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [projectFilter, setProjectFilter] = useState("all");
   const [selectedLead, setSelectedLead] = useState<LeadDb | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [activityNote, setActivityNote] = useState("");
   const [activityType, setActivityType] = useState("call");
   const [activityStatus, setActivityStatus] = useState("");
+
   const [leadActivities, setLeadActivities] = useState<LeadActivityDb[]>([]);
   const [isActivitiesLoading, setIsActivitiesLoading] = useState(false);
 
+  const [leadsData, setLeadsData] = useState<LeadDb[]>([]);
   const [projects, setProjects] = useState<ProjectDb[]>([]);
   const [editLead, setEditLead] = useState({
     name: "",
@@ -47,8 +67,6 @@ export const AgentLeadsPage = () => {
     notes: "",
   });
 
-  // State management for leads - this is the single source of truth
-  const [leadsData, setLeadsData] = useState<LeadDb[]>([]);
   const [editLeadFields, setEditLeadFields] = useState<LeadField[]>([]);
   const [editDynamicData, setEditDynamicData] = useState<Record<string, any>>({});
 
@@ -212,18 +230,54 @@ export const AgentLeadsPage = () => {
     return map;
   }, [projects]);
 
+  const sourceOptions = useMemo(() => {
+    const s = new Set<string>();
+    leadsData.forEach((l) => {
+      const v = String(l.source || '').trim();
+      if (v) s.add(v);
+    });
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [leadsData]);
+
+  const priorityOptions = useMemo(() => {
+    const s = new Set<string>();
+    leadsData.forEach((l) => {
+      const v = String(l.priority || '').trim();
+      if (v) s.add(v);
+    });
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [leadsData]);
+
   const myLeads = leadsData;
   const filteredLeads = myLeads.filter(l => {
-    const matchesSearch = l.name.toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    const projectName = l.projectId ? (projectNameById[l.projectId] || '') : (l.project?.name || '');
+    const matchesSearch =
+      l.name.toLowerCase().includes(q) ||
+      (l.email || '').toLowerCase().includes(q) ||
+      projectName.toLowerCase().includes(q);
     const matchesStatus = statusFilter === "all" || l.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesPriority = priorityFilter === 'all' || String(l.priority || '') === priorityFilter;
+    const matchesSource = sourceFilter === 'all' || String(l.source || '') === sourceFilter;
+    const leadProjectId = String(l.project?.id || l.projectId || '');
+    const matchesProject = projectFilter === 'all' || leadProjectId === projectFilter;
+    return matchesSearch && matchesStatus && matchesPriority && matchesSource && matchesProject;
   });
 
-  const { page, setPage, totalPages, pageItems: paginatedLeads } = useClientPagination(filteredLeads, { pageSize: 9 });
+  const { page, setPage, totalPages, pageItems: paginatedLeads } = useClientPagination(filteredLeads, { pageSize: 20 });
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, setPage]);
+  }, [search, statusFilter, priorityFilter, sourceFilter, projectFilter, setPage]);
+
+  const leadDetailValue = useMemo(() => {
+    if (!selectedLead) return null;
+    const { assignedTo, ...rest } = selectedLead as any;
+    return {
+      ...rest,
+      assignedTo: selectedLead.assignedTo?.name ?? null,
+    };
+  }, [selectedLead]);
 
   const handleSaveActivity = async () => {
     if (!selectedLead) return;
@@ -339,6 +393,11 @@ export const AgentLeadsPage = () => {
     window.open(`tel:${lead.phone}`, '_blank');
   };
 
+  const handleEmail = (lead: LeadDb) => {
+    toast.info(`Opening email client for ${lead.email}...`);
+    window.open(`mailto:${lead.email}`, '_blank');
+  };
+
   const [isReminderOpen, setIsReminderOpen] = useState(false);
   const [reminderLead, setReminderLead] = useState<LeadDb | null>(null);
   const [reminderAt, setReminderAt] = useState('');
@@ -421,62 +480,153 @@ export const AgentLeadsPage = () => {
         <KPICard title="Converted" value={myLeads.filter(l => l.status === 'CONVERTED').length} icon={Users} iconColor="text-success" delay={0.3} />
       </div>
 
-      <div className="flex items-center gap-4 mb-6">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search leads..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="flex flex-col gap-3 mb-4">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Search leads by name, email, or project..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="All Status" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="NEW">New</SelectItem>
+                <SelectItem value="CONTACTED">Contacted</SelectItem>
+                <SelectItem value="FOLLOWUP">Follow Up</SelectItem>
+                <SelectItem value="QUALIFIED">Qualified</SelectItem>
+                <SelectItem value="NEGOTIATION">Negotiation</SelectItem>
+                <SelectItem value="CONVERTED">Converted</SelectItem>
+                <SelectItem value="LOST">Lost</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="All Priority" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Priority</SelectItem>
+                {priorityOptions.map((p) => (
+                  <SelectItem key={p} value={p}>{p}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="All Sources" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sources</SelectItem>
+                {sourceOptions.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={projectFilter} onValueChange={setProjectFilter}>
+              <SelectTrigger className="w-40"><SelectValue placeholder="All Projects" /></SelectTrigger>
+              <SelectContent className="bg-popover">
+                <SelectItem value="all">All Projects</SelectItem>
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-36"><SelectValue placeholder="Status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="NEW">New</SelectItem>
-            <SelectItem value="CONTACTED">Contacted</SelectItem>
-            <SelectItem value="FOLLOWUP">Follow Up</SelectItem>
-            <SelectItem value="QUALIFIED">Qualified</SelectItem>
-            <SelectItem value="NEGOTIATION">Negotiation</SelectItem>
-            <SelectItem value="CONVERTED">Converted</SelectItem>
-            <SelectItem value="LOST">Lost</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {paginatedLeads.map((lead) => (
-          <Card key={lead.id} className="p-4 hover:shadow-md transition-shadow">
-            <div className="flex items-start justify-between mb-3">
-              <span className={cn("px-2 py-1 text-xs font-medium rounded-full", getLeadStatusStyle(lead.status))}>{lead.status}</span>
-              <Badge variant="outline">{lead.source}</Badge>
-            </div>
-            <h4 className="font-semibold">{lead.name}</h4>
-            <p className="text-sm text-muted-foreground mb-2">{lead.email}</p>
-            <p className="text-sm text-muted-foreground mb-3">{lead.phone}</p>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
-              <span>{lead.projectId ? (projectNameById[lead.projectId] || 'N/A') : 'N/A'}</span>
-              <span>•</span>
-              <span>{lead.budget}</span>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenEdit(lead)}>
-                Edit
-              </Button>
-              <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenActivity(lead)}>
-                <MessageSquare className="w-4 h-4 mr-1" />Log Activity
-              </Button>
-              <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenReminder(lead)}>
-                Set Reminder
-              </Button>
-              <Button variant="outline" size="icon" onClick={() => handleCall(lead)}>
-                <Phone className="w-4 h-4" />
-              </Button>
-            </div>
-          </Card>
-        ))}
+      <div className="table-container">
+        <Table className="min-w-[1100px]">
+          <TableHeader>
+            <TableRow className="bg-muted/50">
+              <TableHead className="font-semibold">Name</TableHead>
+              <TableHead className="font-semibold">Contact</TableHead>
+              <TableHead className="font-semibold">Project</TableHead>
+              <TableHead className="font-semibold">Status</TableHead>
+              <TableHead className="font-semibold">Priority</TableHead>
+              <TableHead className="font-semibold">Source</TableHead>
+              <TableHead className="text-right font-semibold">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paginatedLeads.map((lead) => (
+              <TableRow
+                key={lead.id}
+                className="cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => {
+                  setSelectedLead(lead);
+                  setIsDetailOpen(true);
+                }}
+              >
+                <TableCell>
+                  <div>
+                    <p className="font-medium">{lead.name}</p>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm"><Mail className="w-3 h-3 text-muted-foreground" /><span className="text-muted-foreground">{lead.email}</span></div>
+                    <div className="flex items-center gap-2 text-sm"><Phone className="w-3 h-3 text-muted-foreground" /><span className="text-muted-foreground">{lead.phone}</span></div>
+                  </div>
+                </TableCell>
+                <TableCell><span className="text-sm">{lead.projectId ? (projectNameById[lead.projectId] || 'N/A') : (lead.project?.name || 'N/A')}</span></TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={cn("text-xs border", getLeadStatusStyle(lead.status))}>
+                    {lead.status.charAt(0) + lead.status.slice(1).toLowerCase()}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="secondary" className="text-xs">{lead.priority || '—'}</Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline" className="text-xs font-normal">{lead.source}</Badge>
+                </TableCell>
+                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <MoreHorizontal className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="bg-popover">
+                      <DropdownMenuItem onClick={() => { setSelectedLead(lead); setIsDetailOpen(true); }}>
+                        <Eye className="w-4 h-4 mr-2" /> View
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleOpenActivity(lead)}>
+                        <MessageSquare className="w-4 h-4 mr-2" /> Log Activity
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleOpenReminder(lead)}>
+                        <CalendarClock className="w-4 h-4 mr-2" /> Set Reminder
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleOpenEdit(lead)}>
+                        <Edit className="w-4 h-4 mr-2" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleCall(lead)}>
+                        <Phone className="w-4 h-4 mr-2" /> Call
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleEmail(lead)}>
+                        <Mail className="w-4 h-4 mr-2" /> Email
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
 
       <PaginationBar page={page} totalPages={totalPages} onPageChange={setPage} className="px-0" />
 
       {filteredLeads.length === 0 && <div className="text-center py-12 text-muted-foreground">You have no assigned leads.</div>}
+
+      <LeadDetailModal
+        lead={leadDetailValue}
+        open={isDetailOpen}
+        onOpenChange={(open) => {
+          setIsDetailOpen(open);
+          if (!open) setSelectedLead(null);
+        }}
+      />
 
       <Dialog open={isActivityOpen} onOpenChange={setIsActivityOpen}>
         <DialogContent>
