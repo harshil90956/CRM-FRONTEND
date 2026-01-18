@@ -11,6 +11,8 @@ import { useEffect } from "react";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import { LoginPage } from "./pages/LoginPage";
+import { SetPasswordPage } from "./pages/SetPasswordPage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { RBACGuard } from "./components/layout/RBACGuard";
 
 // Layouts
@@ -100,6 +102,8 @@ const App = () => (
             {/* Landing & Auth */}
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/set-password" element={<SetPasswordPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
             {/* Super Admin Routes */}
             <Route

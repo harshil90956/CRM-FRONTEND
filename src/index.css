@@ -131,7 +131,7 @@
   }
 
   .table-container {
-    @apply bg-card rounded-lg border border-border overflow-hidden;
+    @apply bg-card rounded-lg border border-border overflow-x-auto;
   }
 
   .sidebar-item {

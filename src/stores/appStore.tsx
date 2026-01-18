@@ -3,6 +3,8 @@ import { httpClient } from '@/api/httpClient';
 
 export type AuthRole = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'AGENT' | 'CUSTOMER';
 
+export type AccountStatus = 'LEGACY' | 'INVITED' | 'ACTIVE' | 'SUSPENDED';
+
 export type CurrentUser = {
   id: string;
   email: string;
@@ -12,6 +14,8 @@ export type CurrentUser = {
   designation?: string | null;
   role: AuthRole;
   tenantId: string;
+  accountStatus?: AccountStatus;
+  needsPasswordSetup?: boolean;
 };
 
 export type PublicPlatformSettings = {
@@ -40,6 +44,13 @@ interface AppState {
   setLastTenantId: (id: string | null) => void;
   sendOtp: (email: string) => Promise<void>;
   login: (email: string, otp: string, role: AuthRole, tenantId?: string | null) => Promise<CurrentUser | null>;
+  loginWithPassword: (email: string, password: string) => Promise<CurrentUser | null>;
+  refreshMe: () => Promise<void>;
+  setPassword: (verificationToken: string, password: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<void>;
+  requestPurposeOtp: (email: string, purpose: 'PASSWORD_RESET' | 'ACCOUNT_ACTIVATION') => Promise<void>;
+  verifyPurposeOtp: (email: string, otp: string, purpose: 'PASSWORD_RESET' | 'ACCOUNT_ACTIVATION') => Promise<string>;
+  resetPassword: (verificationToken: string, newPassword: string) => Promise<void>;
   logout: () => void;
   updateCurrentUser: (data: Partial<CurrentUser>) => void;
   tenants: Tenant[];
@@ -91,6 +102,31 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       return null;
     }
   });
+
+  const storeVerificationToken = (token: string | undefined) => {
+    if (typeof window === 'undefined') return;
+    const v = String(token || '').trim();
+    if (!v) return;
+    sessionStorage.setItem('crm_verificationToken', v);
+    localStorage.setItem('crm_verificationToken', v);
+  };
+
+  const clearVerificationToken = () => {
+    if (typeof window === 'undefined') return;
+    sessionStorage.removeItem('crm_verificationToken');
+    localStorage.removeItem('crm_verificationToken');
+  };
+
+  const refreshMe = useCallback(async (): Promise<void> => {
+    if (typeof window === 'undefined') return;
+    try {
+      const me = await httpClient.rawGet<CurrentUser>('/auth/me');
+      setCurrentUser(me);
+      setIsAuthenticated(true);
+    } catch {
+      // handled by httpClient redirect on 401
+    }
+  }, []);
 
   const refreshPublicPlatformSettings = useCallback(async (): Promise<void> => {
     try {
@@ -210,6 +246,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
       const accessToken: string | undefined = res?.accessToken ?? res?.data?.accessToken;
       const user: CurrentUser | undefined = res?.user ?? res?.data?.user;
+      const verificationToken: string | undefined = res?.verificationToken ?? res?.data?.verificationToken;
+      const needsPasswordSetup: boolean = Boolean(res?.needsPasswordSetup ?? res?.data?.needsPasswordSetup ?? user?.needsPasswordSetup);
 
       if (!accessToken || !user?.id) {
         return null;
@@ -222,7 +260,37 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         sessionStorage.setItem('auth_token', accessToken);
       }
 
-      setCurrentUser(user);
+      if (verificationToken) {
+        storeVerificationToken(verificationToken);
+      }
+
+      const shaped: CurrentUser = { ...user, needsPasswordSetup };
+      setCurrentUser(shaped);
+      setIsAuthenticated(true);
+      return shaped;
+    } catch {
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const loginWithPassword = useCallback(async (email: string, password: string): Promise<CurrentUser | null> => {
+    setIsLoading(true);
+    try {
+      const res = await httpClient.rawPost<any>('/auth/login', { email, password });
+      const accessToken: string | undefined = res?.accessToken ?? res?.data?.accessToken;
+      const user: CurrentUser | undefined = res?.user ?? res?.data?.user;
+      if (!accessToken || !user?.id) return null;
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('crm_accessToken', accessToken);
+        sessionStorage.setItem('crm_accessToken', accessToken);
+        localStorage.setItem('auth_token', accessToken);
+        sessionStorage.setItem('auth_token', accessToken);
+      }
+      clearVerificationToken();
+      setCurrentUser({ ...user, needsPasswordSetup: false });
       setIsAuthenticated(true);
       return user;
     } catch {
@@ -232,11 +300,54 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
+  const setPassword = useCallback(async (verificationToken: string, password: string): Promise<void> => {
+    const token = String(verificationToken || '').trim();
+    if (!token) throw new Error('Missing verification token');
+    const res = await httpClient.post<any>('/auth/set-password', { verificationToken: token, password });
+    if (!res?.success) {
+      throw new Error(res?.message || 'Failed to set password');
+    }
+    clearVerificationToken();
+  }, []);
+
+  const forgotPassword = useCallback(async (email: string): Promise<void> => {
+    const res = await httpClient.post<any>('/auth/forgot-password', { email });
+    if (!res?.success) {
+      throw new Error(res?.message || 'Failed to send OTP');
+    }
+  }, []);
+
+  const requestPurposeOtp = useCallback(async (email: string, purpose: 'PASSWORD_RESET' | 'ACCOUNT_ACTIVATION'): Promise<void> => {
+    const res = await httpClient.post<any>('/auth/request-otp', { email, purpose });
+    if (!res?.success) {
+      throw new Error(res?.message || 'Failed to send OTP');
+    }
+  }, []);
+
+  const verifyPurposeOtp = useCallback(async (email: string, otp: string, purpose: 'PASSWORD_RESET' | 'ACCOUNT_ACTIVATION'): Promise<string> => {
+    const res = await httpClient.rawPost<any>('/auth/verify-otp', { email, otp, purpose });
+    const token = String(res?.verificationToken ?? res?.data?.verificationToken ?? '').trim();
+    if (!token) {
+      throw new Error('Failed to verify OTP');
+    }
+    return token;
+  }, []);
+
+  const resetPassword = useCallback(async (verificationToken: string, newPassword: string): Promise<void> => {
+    const token = String(verificationToken || '').trim();
+    if (!token) throw new Error('Missing verification token');
+    const res = await httpClient.post<any>('/auth/reset-password', { verificationToken: token, newPassword });
+    if (!res?.success) {
+      throw new Error(res?.message || 'Failed to reset password');
+    }
+  }, []);
+
   const logout = useCallback(() => {
     if (typeof window !== 'undefined') {
       clearStoredToken();
       localStorage.removeItem('crm_currentUser');
     }
+    clearVerificationToken();
     setCurrentUser(null);
     setIsAuthenticated(false);
   }, []);
@@ -268,6 +379,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   return (
     <AppContext.Provider value={{
       currentUser, isAuthenticated, authChecked, sendOtp, login, logout,
+      loginWithPassword,
+      refreshMe,
+      setPassword,
+      forgotPassword,
+      requestPurposeOtp,
+      verifyPurposeOtp,
+      resetPassword,
       lastTenantId, setLastTenantId,
       updateCurrentUser,
       tenants, addTenant, updateTenant, goals, setGoals,

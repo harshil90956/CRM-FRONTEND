@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Building2, Mail, ArrowRight, CheckCircle2, Shield, Users, UserCheck, User } from "lucide-react";
+import { Building2, Mail, ArrowRight, CheckCircle2, Shield, Users, UserCheck, User, Eye, EyeOff } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -25,11 +25,15 @@ const roleConfig: Record<AuthRole, { label: string; icon: any; path: string; des
 export const LoginPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { sendOtp, login, isLoading } = useAppStore();
+  const { sendOtp, login, loginWithPassword, isLoading, requestPurposeOtp, verifyPurposeOtp } = useAppStore();
   const tenantId = useResolvedTenantId();
   const [step, setStep] = useState<"role" | "email" | "otp" | "success">("role");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<'password' | 'loginOtp' | 'activate'>('password');
+  const [otpPurpose, setOtpPurpose] = useState<'LOGIN' | 'ACCOUNT_ACTIVATION'>('LOGIN');
+  const [showPassword, setShowPassword] = useState(false);
   const [selectedRole, setSelectedRole] = useState<AuthRole | null>(null);
   const [platformName, setPlatformName] = useState("RealCRM");
 
@@ -73,6 +77,59 @@ export const LoginPage = () => {
     setSelectedRole(role);
   };
 
+  const handleSendOtpForMode = async () => {
+    if (!email || !email.includes('@')) {
+      toast.error('Please enter a valid email');
+      return;
+    }
+
+    try {
+      if (mode === 'activate') {
+        await requestPurposeOtp(email, 'ACCOUNT_ACTIVATION');
+        setOtpPurpose('ACCOUNT_ACTIVATION');
+        toast.success('Activation OTP sent to your email');
+      } else {
+        await sendOtp(email);
+        setOtpPurpose('LOGIN');
+        toast.success('OTP sent to your email');
+      }
+      setStep('otp');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to send OTP';
+      toast.error(msg || 'Failed to send OTP');
+    }
+  };
+
+  const handlePasswordLogin = async () => {
+    if (!email || !email.includes('@')) {
+      toast.error('Please enter a valid email');
+      return;
+    }
+    if (!password) {
+      toast.error('Please enter your password');
+      return;
+    }
+    if (!selectedRole) {
+      toast.error('Please select a role');
+      return;
+    }
+
+    const user = await loginWithPassword(email, password);
+    if (!user) {
+      toast.error('Login failed. Use OTP if you have not set a password yet.');
+      return;
+    }
+    if (selectedRole && user.role !== selectedRole) {
+      toast.error(`This account is ${roleConfig[user.role].label}. Please select the correct role.`);
+      setStep('role');
+      return;
+    }
+
+    setStep('success');
+    toast.success(`Welcome! Redirecting to ${roleConfig[user.role].label} dashboard...`);
+    setTimeout(() => navigate(roleConfig[user.role].path), 800);
+  };
+
   const handleContinueToEmail = () => {
     if (!selectedRole) {
       toast.error("Please select a role");
@@ -86,13 +143,7 @@ export const LoginPage = () => {
       toast.error("Please enter a valid email");
       return;
     }
-    try {
-      await sendOtp(email);
-      toast.success("OTP sent to your email");
-      setStep("otp");
-    } catch {
-      toast.error("Failed to send OTP");
-    }
+    await handleSendOtpForMode();
   };
 
   const handleVerifyOTP = async () => {
@@ -104,21 +155,42 @@ export const LoginPage = () => {
       toast.error('Please select a role');
       return;
     }
-    const user = await login(email, otp, selectedRole, tenantId);
-    if (user) {
-      if (selectedRole && user.role !== selectedRole) {
-        toast.error(`This account is ${roleConfig[user.role].label}. Please select the correct role.`);
-        setOtp("");
-        setStep("role");
-        return;
+    if (otpPurpose === 'ACCOUNT_ACTIVATION') {
+      try {
+        const token = await verifyPurposeOtp(email, otp, 'ACCOUNT_ACTIVATION');
+        toast.success('OTP verified. Set your password to continue.');
+        navigate('/set-password', {
+          state: { verificationToken: token, redirectTo: selectedRole ? roleConfig[selectedRole].path : '/' },
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Invalid OTP';
+        toast.error(msg || 'Invalid OTP');
       }
-      setStep("success");
-      const role = user.role;
-      toast.success(`Welcome! Redirecting to ${roleConfig[role].label} dashboard...`);
-      setTimeout(() => navigate(roleConfig[role].path), 1000);
-    } else {
-      toast.error("Authentication failed. Please try again.");
+      return;
     }
+
+    const user = await login(email, otp, selectedRole, tenantId);
+    if (!user) {
+      toast.error('Authentication failed. Please try again.');
+      return;
+    }
+
+    if (selectedRole && user.role !== selectedRole) {
+      toast.error(`This account is ${roleConfig[user.role].label}. Please select the correct role.`);
+      setOtp("");
+      setStep("role");
+      return;
+    }
+
+    if ((user as any)?.needsPasswordSetup) {
+      toast.info('Please set your password to continue.');
+      navigate('/set-password', { state: { redirectTo: roleConfig[user.role].path } });
+      return;
+    }
+
+    setStep('success');
+    toast.success(`Welcome! Redirecting to ${roleConfig[user.role].label} dashboard...`);
+    setTimeout(() => navigate(roleConfig[user.role].path), 1000);
   };
 
   return (
@@ -204,33 +276,87 @@ export const LoginPage = () => {
                     Signing in as <span className="font-medium text-primary">{selectedRole && roleConfig[selectedRole].label}</span>
                   </p>
                 </div>
+
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="email">Email Address</Label>
-                    <Input 
-                      id="email" 
-                      type="email" 
-                      placeholder="your@email.com" 
-                      value={email} 
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="your@email.com"
+                      value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSendOTP()}
+                      onKeyDown={(e) => e.key === "Enter" && (mode === 'password' ? handlePasswordLogin() : handleSendOTP())}
                     />
                   </div>
-                  <Button className="w-full" onClick={handleSendOTP}>
-                    Send OTP<ArrowRight className="w-4 h-4 ml-2" />
+
+                  {mode === 'password' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="password">Password</Label>
+                      <div className="relative">
+                        <Input
+                          id="password"
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder="Enter your password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handlePasswordLogin()}
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                          onClick={() => setShowPassword((v) => !v)}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <Button className="w-full" onClick={mode === 'password' ? handlePasswordLogin : handleSendOTP} disabled={isLoading}>
+                    {mode === 'password' ? (
+                      <>Sign In<ArrowRight className="w-4 h-4 ml-2" /></>
+                    ) : (
+                      <>Send OTP<ArrowRight className="w-4 h-4 ml-2" /></>
+                    )}
                   </Button>
+
+                  <div className="flex items-center justify-between">
+                    <Button
+                      variant="link"
+                      className="px-0"
+                      onClick={() => setMode((m) => (m === 'password' ? 'loginOtp' : 'password'))}
+                    >
+                      {mode === 'password' ? 'Login with OTP' : 'Login with password'}
+                    </Button>
+
+                    {mode === 'password' && (
+                      <Button variant="link" className="px-0" onClick={() => navigate('/forgot-password')}>
+                        Forgot password?
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="text-center">
+                    <Button
+                      variant="link"
+                      className="px-0"
+                      onClick={() => {
+                        setMode('activate');
+                        toast.info('Enter your email and request the activation OTP.');
+                      }}
+                    >
+                      First time here? Activate account
+                    </Button>
+                  </div>
                 </div>
+
                 <div className="mt-4 text-center">
-                  <Button variant="link" onClick={() => setStep("role")}>
+                  <Button variant="link" onClick={() => setStep("role")}> 
                     ← Change role
                   </Button>
                 </div>
-                <div className="mt-6 pt-6 border-t border-border">
-                  <p className="text-center text-sm text-muted-foreground mb-3">Demo Credentials</p>
-                  <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground">
-                    <p>• Any email + OTP: <code className="bg-muted px-1 rounded">123456</code></p>
-                  </div>
-                </div>
+
               </>
             )}
 
@@ -259,8 +385,12 @@ export const LoginPage = () => {
                   <Button className="w-full" onClick={handleVerifyOTP} disabled={isLoading}>
                     {isLoading ? "Verifying..." : "Verify & Sign In"}
                   </Button>
-                  <div className="text-center">
+                  <div className="flex items-center justify-between">
                     <Button variant="link" onClick={() => setStep("email")}>Use a different email</Button>
+                    <Button variant="link" onClick={handleSendOtpForMode}>Resend OTP</Button>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground">OTP expires in 5 minutes. If it arrives late, tap resend.</p>
                   </div>
                 </div>
               </>
