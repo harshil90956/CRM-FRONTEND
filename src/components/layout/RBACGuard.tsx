@@ -25,6 +25,11 @@ export const RBACGuard = ({ children, allowedRoles, redirectTo = "/" }: RBACGuar
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // AUTH-1: Force password setup for LEGACY/INVITED users
+  if ((currentUser as any)?.needsPasswordSetup) {
+    return <Navigate to="/set-password" state={{ redirectTo: location.pathname }} replace />;
+  }
+
   // Check if user's role is allowed
   if (!allowedRoles.includes(currentUser.role)) {
     return <UnauthorizedPage redirectTo={redirectTo} />;

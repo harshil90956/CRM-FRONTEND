@@ -21,6 +21,12 @@ export type SuperAdminCreateUserInput = {
   tenantId: string;
 };
 
+export type SuperAdminUpdateUserInput = {
+  name?: string;
+  email?: string;
+  phone?: string;
+};
+
 export type SuperAdminActivityDb = {
   id: string;
   leadId: string;
@@ -91,7 +97,15 @@ export const superAdminUsersService = {
     return httpClient.patch<SuperAdminUserDb>(`/super-admin/users/${id}/status`, { isActive });
   },
 
+  updateProfile: async (id: string, input: SuperAdminUpdateUserInput) => {
+    return httpClient.patch<SuperAdminUserDb>(`/super-admin/users/${id}`, input);
+  },
+
   activity: async (id: string) => {
     return httpClient.get<SuperAdminActivityDb[]>(`/super-admin/users/${id}/activity`);
+  },
+
+  delete: async (id: string) => {
+    return httpClient.del<unknown>(`/super-admin/users/${id}`);
   },
 };

@@ -25,7 +25,7 @@ export const PageWrapper = ({
       animate={{ marginLeft: sidebarOffset }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       style={{ width: isMobile ? '100%' : `calc(100% - ${sidebarOffset}px)` }}
-      className="min-h-screen pt-16 bg-background overflow-x-hidden"
+      className="min-h-screen pt-16 bg-background overflow-x-auto"
     >
       <div className="p-4 sm:p-6 lg:p-8">
         {/* Page Header */}

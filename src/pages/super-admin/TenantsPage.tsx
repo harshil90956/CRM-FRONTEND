@@ -161,10 +161,32 @@ export const TenantsPage = () => {
   };
 
   const handleUpdateTenant = async () => {
-    toast.error('Editing tenant details is not supported by the backend yet');
-    setIsEditDialogOpen(false);
-    setSelectedTenant(null);
-    setEditTenant({ name: "", email: "", domain: "", subscription: "Business" });
+    if (!selectedTenant?.adminUserId) {
+      toast.error('Missing tenant admin user');
+      return;
+    }
+    if (!editTenant.name || !editTenant.email) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await superAdminUsersService.updateProfile(selectedTenant.adminUserId, {
+        name: editTenant.name,
+        email: editTenant.email,
+      });
+      if (!res.success) throw new Error(res.message || 'Failed to update tenant');
+      toast.success('Tenant updated');
+      setIsEditDialogOpen(false);
+      setSelectedTenant(null);
+      setEditTenant({ name: "", email: "", domain: "", subscription: "Business" });
+      await loadTenants();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update tenant');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

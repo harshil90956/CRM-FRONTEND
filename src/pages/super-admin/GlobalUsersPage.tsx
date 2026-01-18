@@ -1,16 +1,19 @@
 import { useState, useEffect } from "react";
 import { useOutletContext } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Users, Search, Shield, Briefcase, UserCheck } from "lucide-react";
+import { Users, Search, Shield, Briefcase, UserCheck, MoreHorizontal, UserX, Trash2 } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useClientPagination } from "@/hooks/useClientPagination";
 import { PaginationBar } from "@/components/common/PaginationBar";
 import type { AuthRole } from "@/stores/appStore";
 import { superAdminUsersService } from "@/api";
+import { toast } from "sonner";
 
 const roleIcons = { SUPER_ADMIN: Shield, ADMIN: Briefcase, MANAGER: UserCheck, AGENT: Users, CUSTOMER: Users };
 
@@ -30,19 +33,48 @@ export const GlobalUsersPage = () => {
   const [users, setUsers] = useState<RowUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  const loadUsers = async () => {
+    setIsLoading(true);
+    try {
+      const res = await superAdminUsersService.list();
+      setUsers((res.data || []) as any);
+    } catch {
+      setUsers([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    void (async () => {
-      setIsLoading(true);
-      try {
-        const res = await superAdminUsersService.list();
-        setUsers((res.data || []) as any);
-      } catch {
-        setUsers([]);
-      } finally {
-        setIsLoading(false);
-      }
-    })();
+    void loadUsers();
   }, []);
+
+  const handleToggleActive = async (user: RowUser) => {
+    const next = !user.isActive;
+    const ok = window.confirm(`${next ? 'Activate' : 'Deactivate'} ${user.name}?`);
+    if (!ok) return;
+    try {
+      await superAdminUsersService.updateStatus(user.id, next);
+      toast.success(`User ${next ? 'activated' : 'deactivated'} successfully`);
+      await loadUsers();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to update status';
+      toast.error(msg || 'Failed to update status');
+    }
+  };
+
+  const handleDelete = async (user: RowUser) => {
+    const ok = window.confirm(`Delete ${user.name}? This cannot be undone.`);
+    if (!ok) return;
+    try {
+      await superAdminUsersService.delete(user.id);
+      toast.success('User deleted successfully');
+      await loadUsers();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to delete user';
+      toast.error(msg || 'Failed to delete user');
+    }
+  };
 
   const filteredUsers = users.filter(u => {
     const matchesSearch = u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
@@ -77,13 +109,14 @@ export const GlobalUsersPage = () => {
       </div>
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="table-container">
-        <Table>
+        <Table className="min-w-[900px]">
           <TableHeader>
             <TableRow className="bg-table-header hover:bg-table-header">
               <TableHead>User</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Tenant</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead className="text-right w-12">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -110,6 +143,24 @@ export const GlobalUsersPage = () => {
                     <span className={user.isActive ? "status-badge status-available" : "status-badge status-lost"}>
                       {user.isActive ? "Active" : "Suspended"}
                     </span>
+                  </TableCell>
+
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleToggleActive(user)}>
+                          <UserX className="w-4 h-4 mr-2" /> {user.isActive ? 'Deactivate' : 'Activate'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDelete(user)}>
+                          <Trash2 className="w-4 h-4 mr-2" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               );

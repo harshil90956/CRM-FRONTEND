@@ -16,6 +16,8 @@ export default defineConfig(({ mode }) => {
         ? {
             '/auth': { target: proxyTarget, changeOrigin: true },
             '/public': { target: proxyTarget, changeOrigin: true },
+            '/super-admin': { target: proxyTarget, changeOrigin: true },
+            '/dashboard': { target: proxyTarget, changeOrigin: true },
             '/projects': { target: proxyTarget, changeOrigin: true },
             '/units': { target: proxyTarget, changeOrigin: true },
             '/reviews': { target: proxyTarget, changeOrigin: true },
