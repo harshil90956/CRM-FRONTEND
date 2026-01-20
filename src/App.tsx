@@ -72,6 +72,7 @@ import { CustomerPaymentsPage } from "./pages/customer/PaymentsPage";
 // Profile & Support Pages
 import { ProfilePage } from "./pages/ProfilePage";
 import { HelpSupportPage } from "./pages/HelpSupportPage";
+import { WarFrontendPingPage } from "./pages/WarFrontendPingPage";
 
 const AuthQuerySync = () => {
   const qc = useQueryClient();
@@ -101,6 +102,7 @@ const App = () => (
           <Routes>
             {/* Landing & Auth */}
             <Route path="/" element={<Index />} />
+            <Route path="/war/frontend-ping" element={<WarFrontendPingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/set-password" element={<SetPasswordPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />

@@ -114,9 +114,16 @@ export const LoginPage = () => {
       return;
     }
 
-    const user = await loginWithPassword(email, password);
+    let user: any;
+    try {
+      user = await loginWithPassword(email, password);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Login failed';
+      toast.error(msg || 'Login failed');
+      return;
+    }
     if (!user) {
-      toast.error('Login failed. Use OTP if you have not set a password yet.');
+      toast.error('Login failed');
       return;
     }
     if (selectedRole && user.role !== selectedRole) {
@@ -169,9 +176,16 @@ export const LoginPage = () => {
       return;
     }
 
-    const user = await login(email, otp, selectedRole, tenantId);
+    let user: any;
+    try {
+      user = await login(email, otp, selectedRole, tenantId);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Authentication failed';
+      toast.error(msg || 'Authentication failed');
+      return;
+    }
     if (!user) {
-      toast.error('Authentication failed. Please try again.');
+      toast.error('Authentication failed');
       return;
     }
 
