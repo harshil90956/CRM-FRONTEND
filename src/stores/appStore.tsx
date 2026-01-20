@@ -268,8 +268,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setCurrentUser(shaped);
       setIsAuthenticated(true);
       return shaped;
-    } catch {
-      return null;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Authentication failed';
+      throw new Error(msg || 'Authentication failed');
     } finally {
       setIsLoading(false);
     }
@@ -293,8 +294,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setCurrentUser({ ...user, needsPasswordSetup: false });
       setIsAuthenticated(true);
       return user;
-    } catch {
-      return null;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Login failed';
+      throw new Error(msg || 'Login failed');
     } finally {
       setIsLoading(false);
     }

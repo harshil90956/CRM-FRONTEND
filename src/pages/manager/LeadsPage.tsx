@@ -64,10 +64,10 @@ import { LeadCard } from "@/components/leads/LeadCard";
 import { LeadCalendarView } from "@/components/leads/LeadCalendarView";
 import { ViewMode } from "@/components/leads/ViewToggle";
 import { DatePreset } from "@/components/leads/DateRangePicker";
-import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
+import { buildLeadsCsvTemplate, downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
 
 import { leadsService, projectsService } from "@/api";
-import type { ManagerAgent, AllowedLeadActions, LeadField, ManagerLead } from "@/api/services/leads.service";
+import type { ManagerAgent, LeadField, ManagerLead } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isWithinInterval } from "date-fns";
@@ -128,6 +128,13 @@ const getPriorityStyle = (priority: string) => {
 type StaffOption = { id: string; name: string };
 type ProjectOption = { id: string; name: string };
 
+type AllowedLeadActions = {
+  canEdit: boolean;
+  canAssign: boolean;
+  canChangeStatus: boolean;
+  canDelete: boolean;
+};
+
 export const ManagerLeadsPage = () => {
   const { sidebarCollapsed } = useOutletContext<{ sidebarCollapsed: boolean }>();
   const [isLoading, setIsLoading] = useState(true);
@@ -157,6 +164,7 @@ export const ManagerLeadsPage = () => {
 
   const [importCsv, setImportCsv] = useState("");
   const [importProjectId, setImportProjectId] = useState<string>('');
+  const [importLeadFields, setImportLeadFields] = useState<LeadField[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const leadById = useMemo(() => {
@@ -947,6 +955,39 @@ export const ManagerLeadsPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAddOpen, newLead.projectId]);
 
+  useEffect(() => {
+    if (!isImportOpen) {
+      setImportLeadFields([]);
+      return;
+    }
+
+    const projectId = importProjectId ? String(importProjectId) : '';
+    if (!projectId) {
+      setImportLeadFields([]);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const res = await leadsService.listLeadFields(projectId);
+        if (!res.success) {
+          setImportLeadFields([]);
+          return;
+        }
+        const fields = (res.data || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        setImportLeadFields(fields);
+      } catch {
+        setImportLeadFields([]);
+      }
+    })();
+  }, [isImportOpen, importProjectId]);
+
+  const importCsvTemplate = useMemo(() => {
+    if (!importProjectId) return sampleLeadsCsvTemplate;
+    const dynamicKeys = (importLeadFields || []).map((f) => String(f.key));
+    return buildLeadsCsvTemplate({ dynamicKeys, includeProjectIdColumn: false });
+  }, [importLeadFields, importProjectId]);
+
   const renderListView = () => (
     <Table className="min-w-[1100px]">
       <TableHeader>
@@ -1376,7 +1417,7 @@ export const ManagerLeadsPage = () => {
           <div className="space-y-4 py-4">
             <div className="p-3 bg-muted rounded-lg">
               <p className="text-xs font-medium mb-2">Sample Format:</p>
-              <pre className="text-xs text-muted-foreground whitespace-pre-wrap">{sampleLeadsCsvTemplate}</pre>
+              <pre className="text-xs text-muted-foreground whitespace-pre-wrap">{importCsvTemplate}</pre>
             </div>
 
             <div className="grid gap-2">

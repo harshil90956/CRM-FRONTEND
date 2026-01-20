@@ -62,7 +62,7 @@ import { LeadCard } from "@/components/leads/LeadCard";
 import { LeadCalendarView } from "@/components/leads/LeadCalendarView";
 import { ViewMode } from "@/components/leads/ViewToggle";
 import { DatePreset } from "@/components/leads/DateRangePicker";
-import { downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
+import { buildLeadsCsvTemplate, downloadCsv, parseCsv, sampleLeadsCsvTemplate } from "@/utils/csv";
 import { adminUsersService, leadsService, projectsService } from "@/api";
 import type { LeadDb, LeadField } from "@/api/services/leads.service";
 import { cn } from "@/lib/utils";
@@ -135,6 +135,7 @@ export const LeadsPage = () => {
   const [editLead, setEditLead] = useState({ name: "", email: "", phone: "", project: "", budget: "", source: "Website", priority: "Medium", notes: "" });
   const [importCsv, setImportCsv] = useState("");
   const [importProjectId, setImportProjectId] = useState<string>('');
+  const [importLeadFields, setImportLeadFields] = useState<LeadField[]>([]);
 
   const handleFileImport = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -215,6 +216,39 @@ export const LeadsPage = () => {
       }
     }
   };
+
+  useEffect(() => {
+    if (!isImportOpen) {
+      setImportLeadFields([]);
+      return;
+    }
+
+    const projectId = importProjectId ? String(importProjectId) : '';
+    if (!projectId) {
+      setImportLeadFields([]);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const res = await leadsService.listLeadFields(projectId);
+        if (!res.success) {
+          setImportLeadFields([]);
+          return;
+        }
+        const fields = (res.data || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        setImportLeadFields(fields);
+      } catch {
+        setImportLeadFields([]);
+      }
+    })();
+  }, [isImportOpen, importProjectId]);
+
+  const importCsvTemplate = useMemo(() => {
+    if (!importProjectId) return sampleLeadsCsvTemplate;
+    const dynamicKeys = (importLeadFields || []).map((f) => String(f.key));
+    return buildLeadsCsvTemplate({ dynamicKeys, includeProjectIdColumn: false });
+  }, [importLeadFields, importProjectId]);
 
   const isMissingDynamicValue = (field: LeadField, value: any) => {
     if (field.type === 'CHECKBOX') {
@@ -1866,9 +1900,9 @@ export const LeadsPage = () => {
           <div className="space-y-4 py-4">
             <div className="p-3 bg-muted rounded-lg">
               <p className="text-xs font-medium mb-2">Sample Format:</p>
-              <pre className="text-xs text-muted-foreground whitespace-pre-wrap">{sampleLeadsCsvTemplate}</pre>
+              <pre className="text-xs text-muted-foreground whitespace-pre-wrap">{importCsvTemplate}</pre>
               <Button variant="link" size="sm" className="p-0 h-auto mt-2" onClick={() => {
-                const blob = new Blob([sampleLeadsCsvTemplate], { type: 'text/csv' });
+                const blob = new Blob([importCsvTemplate], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;

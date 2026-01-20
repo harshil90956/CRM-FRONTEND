@@ -1,5 +1,7 @@
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
+import { isWarMode, pushWarLog } from '@/core/war/warTelemetry';
+
 export type ApiEnvelope<T> = {
   success: boolean;
   data?: T;
@@ -14,6 +16,7 @@ type SoftCacheEntry<T> = {
 const softCache = new Map<string, SoftCacheEntry<unknown>>();
 
 export function getFromSoftCache<T>(key: string): T | null {
+  if (isWarMode()) return null;
   try {
     const entry = softCache.get(key);
     if (!entry) return null;
@@ -28,6 +31,7 @@ export function getFromSoftCache<T>(key: string): T | null {
 }
 
 export function setToSoftCache<T>(key: string, data: T, ttlMs: number): void {
+  if (isWarMode()) return;
   try {
     const ttl = Number.isFinite(ttlMs) ? Math.max(0, Math.floor(ttlMs)) : 0;
     if (ttl <= 0) return;
@@ -42,6 +46,18 @@ export function clearSoftCache(): void {
   } catch {
   }
 }
+
+const byteLen = (value: unknown): number => {
+  try {
+    if (value === undefined || value === null) return 0;
+    const isFormData = typeof FormData !== 'undefined' && value instanceof FormData;
+    if (isFormData) return 0;
+    if (typeof value === 'string') return new TextEncoder().encode(value).length;
+    return new TextEncoder().encode(JSON.stringify(value)).length;
+  } catch {
+    return 0;
+  }
+};
 
 const safeSerialize = (value: unknown): string => {
   if (value === undefined) return '';
@@ -131,13 +147,25 @@ const redirectToLogin = () => {
 async function requestRaw<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {
   const token = getAccessToken();
 
+  const warMode = isWarMode();
+
   const key = `${method}:${path}:${token ? token.trim() : ''}:${safeSerialize(body)}`;
-  const existing = inFlightRequests.get(key);
-  if (existing) {
-    return existing as Promise<T>;
+
+  if (!warMode) {
+    const existing = inFlightRequests.get(key);
+    if (existing) {
+      return existing as Promise<T>;
+    }
   }
 
   const promise = (async () => {
+
+  const startedAt = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+  const requestBytes = byteLen(body);
+  const maxRetries = Number.isFinite((import.meta as any)?.env?.VITE_API_RETRY)
+    ? Math.max(0, Number((import.meta as any).env.VITE_API_RETRY))
+    : 0;
+  let attempt = 0;
 
   const isFormData =
     typeof FormData !== 'undefined' &&
@@ -158,40 +186,95 @@ async function requestRaw<T>(method: HttpMethod, path: string, body?: unknown): 
   const requestBody: any =
     body === undefined ? undefined : isFormData ? (body as any) : JSON.stringify(body);
 
-    const res = await fetch(buildUrl(path), {
-      method,
-      headers,
-      body: requestBody,
-    });
+    while (true) {
+      try {
+        if (attempt > 0) {
+          pushWarLog({
+            ts: new Date().toISOString(),
+            type: 'api',
+            endpoint: path,
+            method,
+            retryAttempt: attempt,
+            message: 'retry_attempt',
+          });
+        }
 
-    const payload = await toJsonOrText(res);
+        const res = await fetch(buildUrl(path), {
+          method,
+          headers,
+          body: requestBody,
+        });
 
-    if (!res.ok) {
-      if (res.status === 401) {
-        clearStoredToken();
-        redirectToLogin();
+        const payload = await toJsonOrText(res);
+        const responseBytes = byteLen(payload);
+
+        const finishedAt = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+        const latencyMs = Math.round((finishedAt - startedAt) * 100) / 100;
+
+        pushWarLog({
+          ts: new Date().toISOString(),
+          type: 'api',
+          endpoint: path,
+          method,
+          latencyMs,
+          ok: res.ok,
+          status: res.status,
+          retryAttempt: attempt,
+          requestBytes,
+          responseBytes,
+        });
+
+        if (!res.ok) {
+          if (res.status === 401) {
+            clearStoredToken();
+            redirectToLogin();
+          }
+
+          const message =
+            typeof payload === 'object' && payload && 'message' in payload
+              ? String((payload as any).message)
+              : `Request failed (${res.status})`;
+          throw new ApiError(message, { status: res.status, payload });
+        }
+
+        if (method !== 'GET') {
+          clearSoftCache();
+        }
+
+        return payload as T;
+      } catch (err) {
+        const finishedAt = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+        const latencyMs = Math.round((finishedAt - startedAt) * 100) / 100;
+
+        pushWarLog({
+          ts: new Date().toISOString(),
+          type: 'api',
+          endpoint: path,
+          method,
+          latencyMs,
+          ok: false,
+          retryAttempt: attempt,
+          requestBytes,
+          message: (err as any)?.message || 'request_failed',
+        });
+
+        const canRetry = attempt < maxRetries;
+        if (!canRetry) throw err;
+        attempt += 1;
       }
-
-      const message =
-        typeof payload === 'object' && payload && 'message' in payload
-          ? String((payload as any).message)
-          : `Request failed (${res.status})`;
-      throw new ApiError(message, { status: res.status, payload });
     }
-
-    if (method !== 'GET') {
-      clearSoftCache();
-    }
-
-    return payload as T;
   })();
 
-  inFlightRequests.set(key, promise as Promise<unknown>);
+  if (!warMode) {
+    inFlightRequests.set(key, promise as Promise<unknown>);
+  }
 
   try {
     return await promise;
   } finally {
-    inFlightRequests.delete(key);
+    if (!warMode) {
+      inFlightRequests.delete(key);
+    }
   }
 }
 
